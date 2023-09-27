@@ -43,7 +43,7 @@ netifapi_netif_add: //NETCONN API
 //tcpip thread主循环
 tcpip_thread:
     while (1)
-        TCPIP_MBOX_FETCH(&tcpip_mbox, (void **)&msg);//从mbox获取数据
+        TCPIP_MBOX_FETCH(&tcpip_mbox, (void **)&msg);//等待mbox消息, 并在等待时处理超时
         tcpip_thread_handle_msg(msg);
             case TCPIP_MSG_API_CALL:
                 msg->msg.api_call.function(msg->msg.api_call.arg);//用发消息前指定的函数处理msg

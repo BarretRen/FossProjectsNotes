@@ -23,8 +23,6 @@ net_wlan_initial:
         tcpip_init(NULL, NULL);
             lwip_init();//初始化协议栈所有模块
                 dns_init();
-                sys_timeouts_init();//初始化需要的timer
-                    //遍历全局变量lwip_cyclic_timers中的timer
 
 dns_init:
     //绑定udp端口, 设置接收处理函数
