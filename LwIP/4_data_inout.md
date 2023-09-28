@@ -77,11 +77,15 @@ etharp_input:
     etharp_update_arp_entry(netif, &sipaddr, &(hdr->shwaddr)...);
         //查找arp entry, 没有就创建新的缓存项
         i = etharp_find_entry(ipaddr, flags, netif);
+        //设置表项状态为stable
+        arp_table[i].state = ETHARP_STATE_STABLE;
         //更新MAC地址
         SMEMCPY(&arp_table[i].ethaddr, ethaddr, ETH_HWADDR_LEN);
+        arp_table[i].ctime = 0;//重置存活时间
         //如果支持arp缓存队列, 遍历arp_table[i].q, 发送每个缓存的报文
         //如果不支持arp缓存队列, 只发送arp_table[i].q
         ethernet_output(netif, p, (struct eth_addr *)(netif->hwaddr), ethaddr, ETHTYPE_IP);
+
     //处理arp msg
     switch (hdr->opcode)
         case PP_HTONS(ARP_REQUEST):
@@ -132,7 +136,7 @@ ip4_output_if_opt_src:
     //判断是不是loop test, 自己发给自己的报文
     if (ip4_addr_cmp(dest, netif_ip4_addr(netif)))
         return netif_loop_output(netif, p);
-    //如果报文长度雨打网卡的MTU, 需要分片发送
+    //如果报文长度大于打网卡的MTU, 需要分片发送
     if (netif->mtu && (p->tot_len > netif->mtu))
         return ip4_frag(p, netif, dest);
             while (left)
@@ -204,8 +208,10 @@ etharp_query:
         arp_table[i].netif = netif;
         return (s16_t)i;
 
+    arp_table[i].state = ETHARP_STATE_PENDING;//设置状态为pending
     if (is_new_entry || (q == NULL))
-        result = etharp_request(netif, ipaddr);//发送ARP广播
+        result = etharp_request(netif, ipaddr);//发送ARP请求
+
     //arp entry可用, 直接发送
     if (arp_table[i].state >= ETHARP_STATE_STABLE)
         //此场景为, 之前发出过arp请求, 在本函数处理期间arp entry更新了, 那就不用等了
