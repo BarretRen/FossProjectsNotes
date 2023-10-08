@@ -13,7 +13,7 @@ freeRTOS 的内核可根据用户需要设置为**可剥夺型内核**或**不�
 
 ## 通用架构
 
-![Alt text](freeRTOS.assets/image.png)
+![Alt text](1_intro.assets/image.png)
 
 - 一个 FreeRTOS 系统主要由 **BSP 驱动+内核+组件**组成（如上图）。内核包含多任务调度、内存管理、任务间通信的功能，组件包含网络协议、外设支持等。
 - FreeRTOS 内核是可剪裁的，组件也是可选的。FreeRTOS 的核心代码只有 9000 行左右。
@@ -37,9 +37,7 @@ freeRTOS 的内核可根据用户需要设置为**可剥夺型内核**或**不�
 # 代码结构
 
 ```
-FreeRTOS
-    |
-    +-Source        The core FreeRTOS kernel files
+FreeRTOS-Kernel   The core FreeRTOS kernel files
         |
         +-include   The core FreeRTOS kernel header files
         |
@@ -47,14 +45,14 @@ FreeRTOS
             |
             +-Compiler x    All the ports supported for compiler x
             +-Compiler y    All the ports supported for compiler y
-            +-MemMang       The sample heap implementations
+            +-MemMang       内存管理相关，不同的heap文件代表不同的内存管理方式
 ```
 
-- source 目录下包含核心的代码，分为不同的文件：
+- 根目录下包含核心的代码，分为不同的文件：
   - tasks.c: 任务管理
   - queue.c: 消息队列, 信号量
-  - list.c: list 结构提操作函数
+  - list.c: list 操作函数
   - timers.c: 软件计时器
   - croutine.c: 协程
-- portable/[compiler]/[architecture]: 每个受支持的处理器架构都需要少量的架构特定 RTOS 代码。这是 RTOS 可移植层。
-  - [compiler] 和 [architecture] 分别是用于创建移植的编译器和运行移植的架构
+- `portable/[compiler]/[architecture]`: 每个受支持的处理器架构都需要少量的架构特定 RTOS 代码。这是 RTOS 可移植层。
+  - `[compiler]` 和 `[architecture]` 分别是用于创建移植的编译器和运行移植的架构
