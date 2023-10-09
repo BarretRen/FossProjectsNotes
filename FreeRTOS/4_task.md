@@ -92,6 +92,8 @@ xTaskCreate:
                 listINSERT_END( &( pxReadyTasksLists[ ( pxTCB )->uxPriority ] ), &( ( pxTCB )->xStateListItem ) );
             if( xSchedulerRunning != pdFALSE )//调度器已经开始运行
                 //根据优先级判断需不需要切换任务
+                if( pxCurrentTCB->uxPriority < pxNewTCB->uxPriority )
+                    taskYIELD_IF_USING_PREEMPTION();
 ```
 
 ## task 删除流程
@@ -114,6 +116,14 @@ vTaskDelete:
         //调度器在运行, 如果是删除当前任务, 需要强制进行任务切换
         if( pxTCB == pxCurrentTCB )
             portYIELD_WITHIN_API();
+
+static portTASK_FUNCTION( prvIdleTask, pvParameters )
+    for( ; ; )
+        prvCheckTasksWaitingTermination();//删除等待终止链表中要是否的任务
+            while( uxDeletedTasksWaitingCleanUp > ( UBaseType_t ) 0U )
+                pxTCB = listGET_OWNER_OF_HEAD_ENTRY( ( &xTasksWaitingTermination ) );
+                ( void ) uxListRemove( &( pxTCB->xStateListItem ) );
+                prvDeleteTCB( pxTCB );
 ```
 
 ## task 挂起流程
@@ -160,6 +170,7 @@ vTaskResume:
 # Task 调度器
 
 每个 task 有自己的运行环境, 不依赖其他 task. 任何一个时间点只有一个 task 运行, 具体运行哪个由调度器决定.
+**RTOS 的核心是任务管理和任务切换**, 任务切换决定了任务的执行顺序, 任务切换效率的高低决定了一款系统的性能.
 
 ## 相关全局变量
 
@@ -184,8 +195,53 @@ vTaskStartScheduler:
         xTickCount = ( TickType_t ) configINITIAL_TICK_COUNT; //初始化系统启动时间
         xPortStartScheduler(); //需要port.c实现
             //启动硬件tick定时器, 开始tick
-            //启动第一个task, 汇编实现
+            //启动第一个task, 汇编实现, 不同芯片的处理不同
                 //加载pxCurrentTCB的堆栈, 恢复上下文并开始执行栈顶的任务函数
 ```
 
 ## 任务切换
+
+任务切换分为两类:
+
+1. 强制任务切换: 上面增删任务时, 可能需要手动调用 API 函数进行任务切换. 常用的: `taskYIELD` 前缀的一系列函数(需要关联 portable 中实现具体的中断触发的`portYIELD`函数)
+2. SysTick 自动切换: tick 中断产生时, 在中断处理中自动检查任务, 判断需不需要任务切换
+
+### SysTick 中断
+
+以 ARM_CM4_MPU 为例, tick 中断会调用`xPortSysTickHandler`函数触发 PendSV 中断, 之后在 PendSV 处理中完成任务切换
+
+```c
+xPortSysTickHandler:
+    //增加计数器xTickCount, 并检查delay list中是否有需要解锁的任务
+    xTaskIncrementTick();
+        if( uxSchedulerSuspended == ( UBaseType_t ) pdFALSE )
+            xTickCount = xConstTickCount;//增加计数器
+            if( xConstTickCount >= xNextTaskUnblockTime )//是否delay list有任务到了要解锁的时间
+                //从delay list中取出第一个任务, 并从list中删除
+                pxTCB = listGET_OWNER_OF_HEAD_ENTRY( pxDelayedTaskList );
+                listREMOVE_ITEM( &( pxTCB->xStateListItem ) );
+                listREMOVE_ITEM( &( pxTCB->xEventListItem ) );
+                //加入到ready list
+                prvAddTaskToReadyList( pxTCB );
+                if( pxTCB->uxPriority > pxCurrentTCB->uxPriority )
+                    xSwitchRequired = pdTRUE; //取出的任务比当前运行任务优先级高, 返回true
+            //检查ready list中与当前任务同优先级的其他任务, 也返回true
+            //检查有yield pending的任务, 也返回true
+            if( xYieldPending != pdFALSE )
+                xSwitchRequired = pdTRUE;
+        else
+            //调度器被挂起, 那就没有任务切换了, 只增加tick计数
+            ++xPendedTicks;
+    //检查前面函数返回值, true表示需要切换任务
+    if(...)
+        portNVIC_INT_CTRL_REG = portNVIC_PENDSVSET_BIT; //往PendSV bit写入1 触发中断
+```
+
+### 强制切换
+
+强制切换调用`taskYIELD`或直接调用`portYIELD`前缀的两个函数, 其实质是一样的:
+
+以 ARM_CM4_MPU 为例:
+
+- `portYIELD`: 触发 SVC 中断, 在`vPortSVCHandler`中切换任务
+- `portYIELD_WITHIN_API`: 触发 PendSV 中断, 在`xPortPendSVHandler`中切换任务
