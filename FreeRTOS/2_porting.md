@@ -60,23 +60,22 @@
 
 ```c
 //以源码自带的示例为例:
-//portable/RVDS/ARM_CA9/portmacro.h, 定义了开关中断的宏
-#define portDISABLE_INTERRUPTS()    ulPortSetInterruptMask()
-#define portENABLE_INTERRUPTS()     vPortClearInterruptMask( 0 )
+//portable/RVDS/ARM_CM4_MPU/portmacro.h, 定义了开关中断的宏
+#define portDISABLE_INTERRUPTS()                  vPortRaiseBASEPRI()
+#define portENABLE_INTERRUPTS()                   vPortSetBASEPRI( 0 )
 
-//上面宏指定的函数在port.c中实现
-//portable/RVDS/ARM_CA9/port.c
-ulPortSetInterruptMask:
-    __disable_irq();
-    portICCPMR_PRIORITY_MASK_REGISTER = ( uint32_t ) ( configMAX_API_CALL_INTERRUPT_PRIORITY << portPRIORITY_SHIFT );
-    __asm("DSB        \n"
-          "ISB        \n" );
-    __enable_irq();
+//上面宏指定的函数在port.c或portmacro.h中实现
+vPortSetBASEPRI:
+    __asm
+    {
+        msr basepri, ulBASEPRI
+    }
 
 vPortClearInterruptMask:
-    portCLEAR_INTERRUPT_MASK();
-        //汇编硬件操作
-        portICCPMR_PRIORITY_MASK_REGISTER = portUNMASK_VALUE;
-        __asm volatile ("DSB        \n"                             \
-                        "ISB        \n" );
+    __asm
+    {
+        msr basepri, ulNewBASEPRI
+        dsb
+        isb
+    }
 ```

@@ -4,8 +4,8 @@
 
 ```c
 //以portable/RVDS/ARM_CA9为例
-#define portDISABLE_INTERRUPTS()    ulPortSetInterruptMask()
-111 #define portENABLE_INTERRUPTS()     vPortClearInterruptMask( 0 )
+#define portDISABLE_INTERRUPTS()                  vPortRaiseBASEPRI()
+#define portENABLE_INTERRUPTS()                   vPortSetBASEPRI( 0 )
 ```
 
 # 临界区保护函数
