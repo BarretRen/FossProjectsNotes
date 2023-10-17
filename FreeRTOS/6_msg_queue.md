@@ -15,14 +15,14 @@
 
 ## 队列类型
 
-| 类型                               | 含义           |
-| ---------------------------------- | -------------- |
-| queueQUEUE_TYPE_BASE               | 普通的消息队列 |
-| queueQUEUE_TYPE_SET                | 队列集         |
-| queueQUEUE_TYPE_MUTEX              | 互斥信号量     |
-| queueQUEUE_TYPE_COUNTING_SEMAPHORE | 计数型信号量   |
-| queueQUEUE_TYPE_BINARY_SEMAPHORE   | 二值信号量     |
-| queueQUEUE_TYPE_RECURSIVE_MUTEX    | 递归互斥锁     |
+| 类型                               | 含义             |
+| ---------------------------------- | ---------------- |
+| queueQUEUE_TYPE_BASE               | 普通的消息队列   |
+| queueQUEUE_TYPE_SET                | 队列集           |
+| queueQUEUE_TYPE_MUTEX              | 互斥信号量       |
+| queueQUEUE_TYPE_COUNTING_SEMAPHORE | 计数型信号量     |
+| queueQUEUE_TYPE_BINARY_SEMAPHORE   | 二值信号量       |
+| queueQUEUE_TYPE_RECURSIVE_MUTEX    | 递归互斥锁信号量 |
 
 ## `struct Queue_t`
 
