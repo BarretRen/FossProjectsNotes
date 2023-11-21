@@ -58,6 +58,24 @@ lv_obj_center(btn1);
 - 调用`lv_obj_refresh_style`刷新对象或页面被更新的 style
 - 调用`lv_obj_report_style_change`刷新用到该 style 的所有对象
 
+## theme
+
+theme 是一组 style 的集合，**每个 display 有一个 theme，应用于所有创建的页面对象**。
+应用 theme 示例如下：
+
+```c
+lv_theme_t * th = lv_theme_default_init(display, /*Use the DPI, size, etc from this,→display*/
+                                        LV_COLOR_PALETTE_BLUE, LV_COLOR_PALETTE_CYAN,→ /*Primary and secondary palette*/
+                                        false, /*Light or dark mode*/
+                                        &lv_font_montserrat_10, &lv_font_montserrat_14, &lv_font_montserrat_18); /*Small, normal, large fonts*/
+
+lv_theme_set_apply_cb(&th_new, new_theme_apply_cb); //设置应用新主题时的回调函数
+/*Assign the theme to the display*/
+lv_disp_set_theme(display, th);
+```
+
+主题之间也可以扩展,有继承关系, 使用`lv_theme_set_parent`扩展已有的 theme(可参照 lvgl 自带的示例`lv_example_style_14`).
+
 # layout
 
 lvgl 支持两种布局(从 CSS 借鉴):
@@ -66,3 +84,13 @@ lvgl 支持两种布局(从 CSS 借鉴):
   ![Alt text](2_objects.assets/image-1.png)
 - Flexbox: 分为水平和垂直两种, 超出的对象可以滚动显示
   ![Alt text](2_objects.assets/image-2.png)
+
+# 输入设备
+
+lvgl 支持如下几类输入设备:
+
+- Touchpad
+- Mouse (with cursor support)
+- Keypad (supports GUI usage only with key)
+- Encoder (supports GUI usage only with: left, right, push)
+- Button (external buttons to press points on the screen)
