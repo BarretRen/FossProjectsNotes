@@ -17,6 +17,15 @@ screen 表示显示的屏幕, 没有父对象. 这里的屏幕用**页面**更�
 
 有多个页面时, 可以指定`lv_scr_load`选择加载哪个页面来显示数据.
 
+## 屏幕方向
+
+有两种方法设置屏幕方向:
+
+1. 在调用`lv_disp_drv_register`注册设备前设置`lv_vnd_config_t`中`rotation`的值
+   - 若参数是 ROTATE_90 和 ROTATE_270 时，需要将显示屏的宽和高进行互换，屏幕的宽度值传入 height 参数，屏幕的高度值传入 width 参数
+1. 调用`lv_disp_set_rotation`动态的调整屏幕方向
+   - 需要确保被注册设备的`sw_rotate = 1`
+
 # style
 
 ## 对象模型
