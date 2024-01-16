@@ -34,6 +34,8 @@ struct tcp_pcb *tcp_active_pcbs; //处于活跃状态的控制块, 可以进行�
 struct tcp_pcb *tcp_tw_pcbs; //处于 TIME_WAIT 状态的控制块
 ```
 
+Note: **`tcp_debug_print_pcbs`可以用于打印上面几类 pcb 的信息和使用的端口**。
+
 ### 接收窗口
 
 在`tcp_pcb`中有以下几个变量用于定义接收窗口:
