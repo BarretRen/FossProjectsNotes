@@ -158,7 +158,7 @@ vTaskSuspend:
     //将任务加到挂起链表中
     vListInsertEnd( &xSuspendedTaskList, &( pxTCB->xStateListItem ) );
     if( xSchedulerRunning != pdFALSE )
-        //计算下一任务的解锁执行时间，防止有任务的解锁时间参考了刚挂起的任务
+        //重新计算一下还要多长时间执行下一个任务，防止当前记录的要解锁任务正好是刚挂起的任务
         prvResetNextTaskUnblockTime();
 
     if( pxTCB == pxCurrentTCB )
@@ -169,7 +169,7 @@ vTaskSuspend:
             if( listCURRENT_LIST_LENGTH( &xSuspendedTaskList ) == uxCurrentNumberOfTasks )
                 pxCurrentTCB = NULL;//所有任务都给挂起， 那就没有可执行的任务了
             else
-                vTaskSwitchContext();//获取写一个要执行的任务
+                vTaskSwitchContext();//获取下一个要执行的任务
                     taskSELECT_HIGHEST_PRIORITY_TASK();
 ```
 
