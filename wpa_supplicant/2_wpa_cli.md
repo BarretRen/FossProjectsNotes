@@ -1,4 +1,4 @@
-wpa_supplicant 是一个连接、配置 WiFi 的工具，它主要包含 wpa_supplicant 与 wpa_cli 两个程序。 可以通过 wpa_cli 来进行 WiFi 的配置与连接,前提要保证 wpa_supplicant 正常启动。
+wpa_supplicant 是一个连接、配置 WiFi 的工具，它主要包含 wpa_supplicant 与 wpa_cli 两个程序(是服务和客户端的关系)。 可以通过 wpa_cli 来进行 WiFi 的配置与连接,前提要保证 wpa_supplicant 正常启动。
 
 ## 常用命令
 
@@ -23,3 +23,12 @@ wpa_supplicant 是一个连接、配置 WiFi 的工具，它主要包含 wpa_sup
 | wpa_cli -i wlan0 remove_network n             | 移除 WiFi 配置                     |
 | wpa_cli -i wlan0 terminate                    | 关闭后台服务器程序                 |
 | wpa_cli [-i wlan0]                            | 进入交互模式, 命令可以为 status 等 |
+
+## 处理调用流程
+
+```c
+wpa_cli_cmd:
+    return wpa_ctrl_command(ctrl, buf);
+        return _wpa_ctrl_command(ctrl, cmd, 1);
+            ret = wpa_ctrl_request(ctrl, cmd, os_strlen(cmd), buf, &len, wpa_cli_msg_cb);
+```

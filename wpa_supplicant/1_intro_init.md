@@ -27,8 +27,8 @@ wpa_supplicant 的源码目录介绍
 │   ├── utils         // 包括 RFC1341编解码, 通用的辅助函数, 双链表, UUID, debug, epool
 │   └── wps           // wps 功能的实现
 └── wpa_supplicant    //wpas核心功能和ctrl_iface控制界面
-    ├── binder
-    ├── dbus
+    ├── binder        //android binder通信机制
+    ├── dbus          //dbus机制
     ├── doc
     ├── examples
     ├── systemd
@@ -39,7 +39,7 @@ wpa_supplicant 的源码目录介绍
 
 # 重要的数据结构
 
-- wpa_global 是一个全局性质的上下文信息，它通过 iface 变量指向一个 wpa_supplicant 链表
+- wpa_global 是一个全局性质的上下文信息，它通过`ifaces`变量指向一个 wpa_supplicant 链表
 - **wpa_supplicant 属于核心数据结构**，一个 interface 对应有一个 wpa_supplicant 对象，系统中所有 wpa_supplicant 对象都通过 next 变量链接在一起.
 - wpa_interface 表示一个网络设备, 包含该设备的信息
 - wpa_drivers 是一个全局变量, 定义在 drivers.c, 包含不同设备的 wpas 驱动(**wpa_driver_ops**). **wpa_driver_ops 是 driver 模块的核心数据结构**，内部定义了很多函数指针，通过此方法 wpa_supplicant 能够隔离上层使用者和具体的 drivers.
@@ -107,6 +107,11 @@ struct wpa_interface {
 };
 ```
 
+## wpa_config
+
+wpa_supplicant 的所有参数都定义在`struct wpa_config`中, 在启动时可以通过指定配置文件设置参数值.
+其中`struct wpa_ssid`代表配置文件中的一个**network 节点**, 保存一个已知的网络, 储了网络的名称(ssid)，密码(psk)，加密方式(WPA_PSK)，优先级(priority).
+
 # wpa_supplicant 启动流程
 
 ## 启动命令
@@ -115,7 +120,7 @@ struct wpa_interface {
 wpa_supplicant -D nl80211 -i wlan0 -c /etc/wpa_supplicant.conf -B
 ```
 
-- -D 驱动程序名称（可以是多个驱动程序：nl80211，wext）
+- -D 驱动程序名称(可以是多个驱动程序：nl80211，wext)
 - -i 接口名称
 - -c 配置文件
 - -B 在后台运行守护进程
@@ -143,6 +148,11 @@ main:
     global = wpa_supplicant_init(&params);
         global = os_zalloc(sizeof(*global));//创建一个global对象
         global->ctrl_iface = wpa_supplicant_global_ctrl_iface_init(global);//初始化全局控制接口对象
+            //初始化unix domain socket接口，对外提供统一的控制接口
+            wpas_global_ctrl_iface_open_sock(global, priv);
+        wpas_notify_supplicant_initialized(global);// 初始化通知机制相关资源
+            global->dbus = wpas_dbus_init(global); //初始化dbus接口
+            global->binder = wpas_binder_init(global); //初始化android binder通信接口
         global->drv_priv = os_calloc(global->drv_count, sizeof(void *));//分配全局driver wrapper上下文信息数组
         //注册定时清理timer
         eloop_register_timeout(WPA_SUPPLICANT_CLEANUP_INTERVAL, 0, wpas_periodic, global, NULL);
@@ -156,7 +166,7 @@ main:
                 wpas_init_driver(wpa_s, iface);//初始化驱动
                     wpa_supplicant_set_driver(wpa_s, driver);
                         for (i = 0; wpa_drivers[i]; i++)//遍历数组中的驱动, 设置到wpa_s
-                            select_driver(wpa_s, i);
+                            select_driver(wpa_s, i);//遍历wpa_drivers全局结构体，根据名字查找驱动
                                 wpa_s->driver = wpa_drivers[i];
             //将新建的wpa_s填入到global链表
             wpa_s->next = global->ifaces;
