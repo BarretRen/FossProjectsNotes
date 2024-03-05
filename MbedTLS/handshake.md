@@ -6,7 +6,7 @@
 
 ![Alt text](handshake.assets/image.png)
 
-对应 wireshark 抓包如下：
+对应 [wireshark 抓包](handshake.assets/ssl_handshake.pcapng)如下：
 ![Alt text](handshake.assets/image-2.png)
 
 - Client Hello：客户端向服务端打招呼；携带支持的协议、支持的安全套件供服务端选择；
