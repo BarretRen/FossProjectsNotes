@@ -13,6 +13,8 @@
 - Server Hello：服务端回应客户客户端的招呼信息；结合客户端的信息，选择合适的加密套件；
 - Certificate：服务端向客户端发送自己的数字证书（此证书包含服务端的公钥），以实现验证身份；
 - Server Key Exchange：服务端向客户端发送基于选择的加密套件生成的公钥（此公钥为椭圆曲线的公钥，用于协商出对称加密的密钥）；
+  - **若使用 ECDH，客户端使用证书中的服务器公钥，服务端不发送 Server Key Exchange**
+  - **若使用 ECDHE，服务器将通过 Server Key Exchange 消息告之客户端临时 ECDH 公钥，并使用服务器私钥对该临时公钥进行签名**
 - Server Hello Done：服务端向客户端表示响应结束；
 - Client Key Exchange：客户端向服务端发送自己生成的公钥（此公钥为椭圆曲线的公钥，用于协商出对称加密的密钥）；
 - Change Cipher Spec：变更密码规范；告知服务端/客户端，以后的通信都是基于 AES 加密的；
@@ -24,7 +26,7 @@
 DTLS 是基于 UDP 场景下数据包可能丢失或重新排序的情况下，为 UDP 定制和改进的 TLS 协议。
 ![Alt text](handshake.assets/image-1.png)
 
-# Q&A
+# 常见问题
 
 ## 客户端是否需要校验服务器发来的公钥证书
 
@@ -78,3 +80,37 @@ openssl x509 -text -noout -in server.crt
 ### whareshark 包中获取
 
 ![alt text](handshake.assets/image-4.png)
+
+#### 导出证书
+
+那如何导出证书呢？
+选择证书的节点，导出为**cer**格式的字节流:
+![alt text](handshake.assets/image-5.png)
+
+#### 验证证书链
+
+需要将 wireshakr 导出的证书转换为 PEM 格式(base64 编码), 之后用 CA 证书进行验证:
+
+```bash
+# 转换格式
+openssl.exe x509 -inform DER -outform PEM -in server.cer -out server.pem
+openssl.exe x509 -inform DER -outform PEM -in ca.cer -out ca.pem
+
+# 验证证书链
+openssl verify -CAfile ca.pem -verbose -purpose sslclient -issuer_checks server.pem
+
+# 如果有多级证书链, 需要将root和中间ca导出到一个文件中, 再验证
+cat root.pem ca.pem > bundle.pem
+openssl verify -CAfile bundle.pem -verbose -purpose sslclient -issuer_checks server.pem
+```
+
+## cipher suite 怎么确定
+
+mbedtls 中默认可支持的套件定义在`ciphersuite_definitions`, 由各个宏控制, 用`MBEDTLS_SSL_PRESET_DEFAULT`表示.
+在函数`set_client_config`设置 ssl client 的加密套件时, 可以指定不同套件集:
+
+```c
+set_client_config:
+    mbedtls_ssl_config_defaults(&tls->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+            MBEDTLS_SSL_PRESET_DEFAULT));//这里指定使用默认的套件集
+```
