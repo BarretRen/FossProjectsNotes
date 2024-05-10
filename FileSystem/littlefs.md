@@ -92,8 +92,6 @@ const struct lfs_config cfg = {
     .block_cycles = 500,
 };
 
-
-
 void lfs_test()
 {
     lfs_t lfs = {0};
@@ -137,4 +135,20 @@ void lfs_test()
 exit:
     return;
 }
+```
+
+# littlefs 镜像生成工具
+
+mklittlefs 是 littlefs 镜像打包和解析工具.
+打包和解码等基本命令一样:
+
+```bash
+# 打包
+mklittlefs -c littlefs/ -b 4096 -p 256 -s 65536 littlefs.bin
+
+# 解析
+mklittlefs -u littlefs/ -b 4096 -p 256 -s 65536 littlefs.bin
+
+# 查看
+mklittlefs -l -b 4096 littlefs.bin
 ```

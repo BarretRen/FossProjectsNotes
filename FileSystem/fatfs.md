@@ -21,3 +21,7 @@ FATFS 的移植主要分为三步：
 ![Alt text](fatfs.assets/image-1.png)
 
 **移植时一般只实现前六个函数就满足了大部分功能**.
+
+# fatfs 镜像生成工具
+
+将要打包的文件按照文件夹方式存好，使用**fatdisk**工具生成 bin 文件.
