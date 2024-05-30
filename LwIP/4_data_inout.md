@@ -107,6 +107,7 @@ ip4_input:
     if (netif == NULL)
         //报文不是发给我们的网卡的，根据宏定义IP_FORWARD决定转发或丢弃
 
+    pbuf_remove_header(p, iphdr_hlen);//去除ip层header
     //根据传输层协议的不同, 调用不同函数继续处理
     switch (IPH_PROTO(iphdr))
         case IP_PROTO_UDP:
