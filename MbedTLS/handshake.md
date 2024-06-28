@@ -36,6 +36,17 @@ DTLS 是基于 UDP 场景下数据包可能丢失或重新排序的情况下，�
 mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_NONE);
 ```
 
+## MBEDTLS_SSL_MAX_CONTENT_LEN
+
+mbedtls 中需要设置`MBEDTLS_SSL_MAX_CONTENT_LEN`定义本地收发缓冲区(`mbedtls_ssl_setup`申请 2 个)大小, 在 nginx 中用`ssl_buffer_size`定义大小.
+
+实际上可以理解为分包(TLS Record)大小。**客户端必须收到一个完整的 Record 才能解密**，Record 传输过程中又可能被分为多个 tcp 包。
+
+- 如果缓冲很大，万一中间丢包，则不得不重传，直到组成完整的 Record。
+- 如果比较小，则可以更及时地解密数据，相应地，分包个数也会增加，那么就不得不传输很多无意义的包头之类的数据。
+
+**默认大小是 16k**，一般不用改。如果确认自己发送的数据都很小，比如一个 API 服务器，可以改得小一点，比如 4k
+
 ## MBEDTLS_MPI_MAX_SIZE 与 key size 关系
 
 比如 RSA 公钥(其他类型同理), `pk_get_rsapubkey`中会检查收到服务器侧的公钥的长度, 大小不满足会返回**-0x3b00**错误.
