@@ -111,3 +111,22 @@ ethernetif_init:
     low_level_init(netif);
         //每个网卡具体实现各不相同
 ```
+
+# netif flags
+
+## up flag
+
+- `NETIF_FLAG_UP`: 软件（协议栈）就绪标志, 表示 lwip 协议栈已经就绪(已得到合法 IP 地址，且协议栈已准备好收发数据包)
+- `NETIF_FLAG_LINK_UP`: 硬件（链路层）就绪标志, 表示链路层有效
+
+根据 IP 配置方式不同, 有一下情况:
+
+- 使用静态 IP
+  - `low_level_init`根据当前链路状态设置或不设置 `NETIF_FLAG_LINK_UP`
+  - lwip 初始化时调用`netif_set_up`
+  - 链路状态改变时调用`netif_set_link_up`和`netif_set_link_down`
+- 使用动态 IP
+  - `low_level_init` 根据当前链路状态设置或不设置 `NETIF_FLAG_LINK_UP`
+  - lwip 初始化时调用`dhcp_start`
+  - 链路状态改变时调用`netif_set_link_up`和`netif_set_link_down`
+  - 不要在使用动态 IP 时直接调用 `netif_set_up`, 而是由 lwip 协议栈代码在成功获得 IP 后为你调用这个函数
