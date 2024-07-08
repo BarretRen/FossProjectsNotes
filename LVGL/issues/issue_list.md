@@ -26,3 +26,23 @@ lv_vnd_config.draw_buf_2_2 = (lv_color_t *)(PSRAM_DRAW_BUFFER + lv_vnd_config.dr
 2. `lv_obj_clean`没有清除自身, 应该用`lv_obj_del`
 3. 文件系统问题
 4. strdup 之后不 free 的问题
+
+## 启用 img cache 后内存占用多的问题
+
+img cache 涉及到的内存占用:
+
+- img cache entry 的内存占用, 44
+- 图片解码后数据占用的内存
+- 不同图片格式内部处理时的额外内存占用
+
+### jpg 内部处理内存占用
+
+1. sjpeg: 结构体 SJPEG, 即 88
+1. sjpeg->frame_cache: 根据`LV_SJPG_USE_PSRAM`可指定使用 heap 或 psram, 大小为`width * height * 3`
+1. sjpeg->frame_base_array: `LV_IMG_SRC_VARIABLE`时使用, 帧数为 1, 大小为`sizeof(uint8_t *) * sjpeg->sjpeg_total_frames`, 即 4
+1. sjpeg->frame_base_offset: `LV_IMG_SRC_FILE`时使用, 帧数为 1, 大小为`sizeof(uint8_t *) * sjpeg->sjpeg_total_frames`, 即 4
+1. sjpeg->tjpeg_jd: 结构体 JDEC, 即 120, 在绘图过程中逐行解析时使用
+1. sjpeg->workb: 在绘图过程中逐行解析时使用, 大小为`TJPGD_WORKBUFF_SIZE`, 默认 4096
+1. sjpeg->io.lv_file 的 cache:
+   1. cache: 结构体 lv_fs_file_cache_t, 即 16
+   1. cache->buffer: 大小根据 drv 定义的 cache_size, bk posix 定义为 0(`LV_FS_BK_POSIX_CACHE_SIZE`)
