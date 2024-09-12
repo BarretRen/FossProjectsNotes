@@ -4,6 +4,8 @@
 
 ## SSL/TLS 握手流程
 
+### 握手消息
+
 ![Alt text](handshake.assets/image.png)
 
 对应 [wireshark 抓包](handshake.assets/ssl_handshake.pcapng)如下：
@@ -21,10 +23,23 @@
 - Encrypted Handshake Message：基于协商生成的密钥，用 AES 加密验证信息让服务端/客户端进行认证；如果对方可以解密，则双方认证无误开始通信；
 - New Session Ticket：是优化 SSL 连接的一种方法
 
+### 内部计算原理
+
+![alt text](handshake.assets/image-6.png)
+
 ## DTLS 握手流程
 
 DTLS 是基于 UDP 场景下数据包可能丢失或重新排序的情况下，为 UDP 定制和改进的 TLS 协议。
 ![Alt text](handshake.assets/image-1.png)
+
+# session 恢复
+
+有两种方法可以恢复原来的 session，不需要重新握:
+
+- session ID: 每一次对话都有一个编号**session ID**。如果对话中断，下次重连的时候，只要客户端给出这个编号，且服务器有这个编号的记录，双方就可以重新使用已有的"对话密钥"，而不必重新生成一把
+  ![alt text](handshake.assets/image-7.png)
+- session ticket: 客户端不再发送 session ID，而是发送一个**服务器在上一次对话中发送过来的 session ticket**。这个 session ticket 是加密的，只有服务器才能解密，其中包括本次对话的主要信息，比如对话密钥和加密方法。当服务器收到 session ticket 以后，解密后就不必重新生成对话密钥了
+  ![alt text](handshake.assets/image-8.png)
 
 # 常见问题
 
@@ -125,3 +140,9 @@ set_client_config:
     mbedtls_ssl_config_defaults(&tls->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
             MBEDTLS_SSL_PRESET_DEFAULT));//这里指定使用默认的套件集
 ```
+
+## 0x7180 错误
+
+在 TLS 中，错误码-0x7180 表示验证消息 MAC 失败。在 TLS 中使用 MAC (Message Authentication Code) 来验证传输的数据完整性和真实性。客户端和服务器共享一个密钥，通过计算 MAC 验证数据的真实性。
+
+当返回错误-0x7180 时，表示 TLS 无法验证消息 MAC，也就是说，TLS 认为消息的密钥不匹配、消息被篡改、消息在传输过程中被重放等原因导致**计算得到的 MAC 和接收到的 MAC 不匹配**。这种情况可能是由于网络问题、安全配置问题或应用程序代码问题等原因引起的。
