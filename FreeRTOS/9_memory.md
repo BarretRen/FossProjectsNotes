@@ -10,7 +10,10 @@ C 标准库的 malloc 和 free 也可以实现动态内存管理, 但有以下�
 - 链接器的配置复杂
 
 所以在 FreeRTOS 中使用`pvPortMalloc`和`pPortFree`代替 C 函数, 并提供 5 种内存分配文件在移植层(`portable/MemMang`)种供自定义配置.
-**无论哪种分配方式, 使用的内存堆都是`ucHeap[]`, 大小为`configTOTAL_HEAP_SIZE`.**
+**无论哪种分配方式, 使用的内存堆都是`ucHeap[]`, 大小分为两种情况：**
+
+- 没有定义`configDYNAMIC_HEAP_SIZE`: 大小由`configTOTAL_HEAP_SIZE`指定
+- 定义了`configDYNAMIC_HEAP_SIZE`: 大小由`prvHeapGetTotalSize()`函数返回, `configTOTAL_HEAP_SIZE`不起作用`
 
 # 5 种堆内存管理
 
