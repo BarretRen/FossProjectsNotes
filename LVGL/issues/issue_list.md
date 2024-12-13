@@ -46,3 +46,12 @@ img cache 涉及到的内存占用:
 1. sjpeg->io.lv_file 的 cache:
    1. cache: 结构体 lv_fs_file_cache_t, 即 16
    1. cache->buffer: 大小根据 drv 定义的 cache_size, bk posix 定义为 0(`LV_FS_BK_POSIX_CACHE_SIZE`)
+
+## 如何提高 lvgl 的帧率?
+
+1. 修改刷新周期`LV_DISP_DEF_REFR_PERIOD`
+1. `LV_DPI_DEF`设置, 会影响动画的效果, 例如 480x272 分辨率 1.28 英寸的屏幕，那么$$DPI = ((√480*272) / 1.28) ≈ 89$$
+1. 帧缓存区不要低于屏幕的 1/4，建议双缓存
+1. lvgl的高级效果关掉也能提升一些帧率
+1. 关闭lvgl中的assert
+1. 图片的宽度和控件的位置最好都是偶数

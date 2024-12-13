@@ -152,3 +152,44 @@ mklittlefs -u littlefs/ -b 4096 -p 256 -s 65536 littlefs.bin
 # 查看
 mklittlefs -l -b 4096 littlefs.bin
 ```
+
+# 注意事项
+
+## 配置注意事项
+
+- read_size 和 prog_size 不要太大了，不然会频繁的触发压缩过程。
+- 在保证内存的情况下，lookahead_size 越大越好，因为 lookahead 窗口的建立过程消耗的时间，不受 lookahead_size 的影响。lookahead 窗口用 1bit 代表 1 个 block size，其实对内存的开销也还好。
+- block_cycles 越小，擦写均衡的效果越好，但是写入抖动的频率会越高。
+- cache_size 一般和 block size 对齐就好了。
+
+## 实际使用注意事项
+
+- 不要同时 open 太多文件，每 open 一个文件，没有 close 的情况下，会增加 cache_size 大小的内存开销。
+- write 完数据要尽快的 close，因为只有 close 操作完成了，异常掉电后，write 的数据才能被文件系统正确检索。
+- 一个目录下面不要放太多的文件，不然压缩的过程（write 的抖动）时间会比较大。
+- 文件的大小尽可能小于 1 个 block size，如果大于 1 个 block size，那么尽可能按照 ctz 特性来设计文件大小，不然可能性能比想象的差，例如文件大小为 8192（占据三个 ctz block），比文件大小为 8000（占据两个 ctz block），要差很多。
+- 对写时延要求比较高的文件，尽量放到一级目录，写时间会短一些
+
+# 常见问题
+
+## error: No more free space
+
+因为这里代码上报此错误：
+
+```c
+// check if we have looked at all blocks since last ack
+if (lfs->free.ack == 0) {
+    LFS_ERROR("No more free space %"PRIu32,
+            lfs->free.i + lfs->free.off);
+    return LFS_ERR_NOSPC;
+}
+```
+
+解决方法:
+
+1. 增大`lookahead_size`和`cache_size`
+
+## error: Corrupted dir pair at
+
+1. 整个磁盘擦除后会出现一次,因为需要重新 mkfs,创建全新的根目录
+1. 之后出现意味着磁盘数据被改写,导致文件系统元数据出现错误
