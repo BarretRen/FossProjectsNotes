@@ -1,0 +1,441 @@
+From 1198de5a3fa57d4d9af6955d71407e9d0d668c98 Mon Sep 17 00:00:00 2001
+From: Ren xiuhu <xiuhu.ren@bekencorp.com>
+Date: Mon, 2 Dec 2024 11:24:49 +0800
+Subject: [PATCH 1/6] =?UTF-8?q?=E5=8F=8Cbuffer=E6=AF=8F=E6=AC=A1=E5=8F=AA?=
+ =?UTF-8?q?=E6=8B=B7=E8=B4=9D=E6=9B=B4=E6=96=B0=E5=8C=BA=E5=9F=9F?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ components/display_service/CMakeLists.txt     |   6 ++
+ .../display_service/src/lcd_display_service.c |  99 +++++++++++++++--
+ .../display_service/src/lv_display_service.c  | 100 ++++++++++++++++++
+ components/lvgl/port/lv_port_disp.c           |  44 ++++++--
+ components/multimedia/pipeline/yuv_encode.h   |   6 +-
+ 5 files changed, 240 insertions(+), 15 deletions(-)
+ create mode 100644 components/display_service/src/lv_display_service.c
+
+diff --git a/components/display_service/CMakeLists.txt b/components/display_service/CMakeLists.txt
+index 7a2e30b..6a51e89 100755
+--- a/components/display_service/CMakeLists.txt
++++ b/components/display_service/CMakeLists.txt
+@@ -8,6 +8,12 @@ if (CONFIG_MEDIA_DISPLAY_SERVICE)
+ 	)
+ endif()
+ 
++if (CONFIG_LVGL)
++	list(APPEND srcs
++		src/lv_display_service.c
++	)
++endif()
++
+ if (CONFIG_LCD_FONT_BLEND OR CONFIG_LCD_DMA2D_BLEND)
+ 	list(APPEND srcs
+ 		src/lcd_draw_blend.c
+diff --git a/components/display_service/src/lcd_display_service.c b/components/display_service/src/lcd_display_service.c
+index 65c8b83..3bfa267 100755
+--- a/components/display_service/src/lcd_display_service.c
++++ b/components/display_service/src/lcd_display_service.c
+@@ -85,6 +85,13 @@ typedef struct {
+ extern media_debug_t *media_debug;
+ extern uint32_t  platform_is_in_interrupt_context(void);
+ 
++#if CONFIG_LVGL
++#if (!CONFIG_LCD_QSPI)
++static uint8_t g_lvgl_need_to_wait = BK_FALSE;
++#endif
++#endif
++static const lcd_device_t *g_lcd_device = NULL;
++
+ 
+ static lcd_disp_config_t *lcd_disp_config = NULL;
+ static display_service_info_t *service_info = NULL;
+@@ -177,7 +184,7 @@ if (flash_status == FLASH_OP_IDLE)
+ 
+ 			lcd_driver_set_display_base_addr((uint32_t)lcd_disp_config->display_frame->frame);
+ 
+-			if (temp_buffer != NULL)
++			if (temp_buffer != NULL && (u32)temp_buffer >= 0x60000000)
+ 			{
+ 				ret = lcd_display_task_send_msg(DISPLAY_FRAME_FREE, (uint32_t)temp_buffer);
+ 				if (ret != BK_OK)
+@@ -201,7 +208,21 @@ if (flash_status == FLASH_OP_IDLE)
+     DISPLAY_ISR_END();
+ }
+ 
+-static bk_err_t lcd_display_frame(frame_buffer_t *frame)
++static bk_err_t lcd_display_frame_wait(uint32_t timeout_ms)
++{
++	bk_err_t ret = BK_OK;
++
++	ret = rtos_get_semaphore(&lcd_disp_config->disp_sem, timeout_ms);
++
++	if (ret != BK_OK)
++	{
++		LOGE("%s semaphore get failed: %d\n", __func__, ret);
++	}
++
++	return ret;
++}
++
++static bk_err_t lcd_display_frame(frame_buffer_t *frame, bool sync)
+ {
+ 	bk_err_t ret = BK_FAIL;
+ 	DISPLAY_START();
+@@ -242,17 +263,77 @@ static bk_err_t lcd_display_frame(frame_buffer_t *frame)
+ 		}
+ 	}
+ 
+-	ret = rtos_get_semaphore(&lcd_disp_config->disp_sem, BEKEN_NEVER_TIMEOUT);
++    if (true == sync) {
++        ret = lcd_display_frame_wait(BEKEN_NEVER_TIMEOUT);
++    } else {
++        ret = BK_OK;
++    }
+ 
+-	if (ret != BK_OK)
+-	{
+-		LOGE("%s semaphore get failed: %d\n", __func__, ret);
+-	}
+ 	DISPLAY_END();
+ 
+ 	return ret;
+ }
+ 
++#if CONFIG_LVGL
++extern media_debug_t *media_debug;
++void lcd_display_frame_for_lvgl(uint8_t *frame, bool sync)
++{
++    static frame_buffer_t *frame_buff = NULL;
++    static frame_buffer_t *lvgl_frame = NULL;
++
++    media_debug->lvgl_draw++;
++    if (!lv_display_frame_is_use_frame_malloc()) {
++        if (!lvgl_frame) {
++            lvgl_frame = os_malloc(sizeof(frame_buffer_t));
++            if(!lvgl_frame) {
++                LOGE("%s malloc failed\n", __func__);
++                return;
++            }
++
++            os_memset(lvgl_frame, 0, sizeof(frame_buffer_t));
++
++            lvgl_frame->width = ppi_to_pixel_x(g_lcd_device->ppi);
++            lvgl_frame->height = ppi_to_pixel_y(g_lcd_device->ppi);
++
++            #if (CONFIG_LV_COLOR_DEPTH == 16)
++            lvgl_frame->fmt = PIXEL_FMT_RGB565;
++            #elif (CONFIG_LV_COLOR_DEPTH == 32)
++            lvgl_frame->fmt = PIXEL_FMT_RGB888;
++            #endif
++        }
++
++        lvgl_frame->frame = frame;
++        frame_buff = lvgl_frame;
++    } else {
++        frame_buff = lv_display_frame_get(frame);
++        if (!frame_buff) {
++            LOGE("%s can't find\n", __func__);
++        }
++    }
++
++#if (CONFIG_LCD_QSPI)
++    bk_lcd_qspi_display((uint32_t)frame_buff->frame);
++#else
++    DISPLAY_START();
++
++    if (g_lcd_device->type == LCD_TYPE_MCU8080) {
++        sync = BK_TRUE;
++    }
++
++    if (g_lvgl_need_to_wait) {
++        lcd_display_frame_wait(2000);
++        g_lvgl_need_to_wait = BK_FALSE;
++    }
++
++    lcd_display_frame(frame_buff, sync);
++    if (!sync) {
++        g_lvgl_need_to_wait = BK_TRUE;
++    }
++
++    DISPLAY_END();
++#endif
++}
++#endif
+ 
+ 
+ bk_err_t lcd_display_task_send_msg(uint8_t type, uint32_t param)
+@@ -314,7 +395,7 @@ static void lcd_display_task_entry(beken_thread_arg_t data)
+ #if (CONFIG_LCD_FONT_BLEND || CONFIG_LCD_DMA2D_BLEND)
+                     lcd_font_handle((frame_buffer_t*)msg.param, lcd_disp_config->lcd_width, lcd_disp_config->lcd_height);
+ #endif
+-					lcd_display_frame((frame_buffer_t*)msg.param);
++					lcd_display_frame((frame_buffer_t*)msg.param, true);
+ 					break;
+ 				case DISPLAY_FRAME_FREE:
+ 					frame_buffer_display_free((frame_buffer_t*)msg.param);
+@@ -584,6 +665,7 @@ bk_err_t lcd_display_open(lcd_open_t *config)
+         }
+     }
+ 
++    g_lcd_device = lcd_device;
+     lcd_driver_backlight_open();
+ 
+ 	LOGI("%s %d complete\n", __func__, __LINE__);
+@@ -608,6 +690,7 @@ bk_err_t lcd_display_close(void)
+ 		return BK_OK;
+ 	}
+ 
++    g_lcd_device = NULL;
+ 	lcd_driver_backlight_close();
+ 
+ #if CONFIG_LCD_QSPI
+diff --git a/components/display_service/src/lv_display_service.c b/components/display_service/src/lv_display_service.c
+new file mode 100644
+index 0000000..e66f5d3
+--- /dev/null
++++ b/components/display_service/src/lv_display_service.c
+@@ -0,0 +1,100 @@
++// Copyright 2020-2021 Beken
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++
++#include <os/os.h>
++#include "frame_buffer.h"
++#include "yuv_encode.h"
++
++
++#define TAG "LV_DISP"
++
++#define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
++#define LOGW(...) BK_LOGW(TAG, ##__VA_ARGS__)
++#define LOGE(...) BK_LOGE(TAG, ##__VA_ARGS__)
++#define LOGD(...) BK_LOGD(TAG, ##__VA_ARGS__)
++
++
++static frame_buffer_t *g_lvgl_psram_buff[2] = {0};
++
++BOOLEAN lv_display_frame_is_use_frame_malloc(void)
++{
++    if (g_lvgl_psram_buff[0] || g_lvgl_psram_buff[1]) {
++        return BK_TRUE;
++    } else {
++        return BK_FALSE;
++    }
++}
++
++frame_buffer_t *lv_display_frame_get(uint8_t *frame)
++{
++    if (frame == g_lvgl_psram_buff[0]->frame) {
++        return g_lvgl_psram_buff[0];
++    } else if (frame == g_lvgl_psram_buff[1]->frame) {
++        return g_lvgl_psram_buff[1];
++    } else {
++        return NULL;
++    }
++}
++
++frame_buffer_t *lv_display_frame_psram_malloc(uint32_t size)
++{
++    frame_buffer_t *p_frame = NULL;
++
++    do {
++        if (g_lvgl_psram_buff[0] || g_lvgl_psram_buff[1]) {
++            LOGE("%s psram buff is full\n", __func__);
++            break;
++        }
++
++        if (!g_lvgl_psram_buff[0]) {
++            g_lvgl_psram_buff[0] = frame_buffer_display_malloc(size);
++
++            if (!g_lvgl_psram_buff[0]) {
++                LOGE("%s psram buff[0] malloc failed\n", __func__);
++                break;
++            }
++
++            p_frame = g_lvgl_psram_buff[0];
++            break;
++        }
++
++        if (!g_lvgl_psram_buff[1]) {
++            g_lvgl_psram_buff[1] = frame_buffer_display_malloc(size);
++
++            if (!g_lvgl_psram_buff[1]) {
++                LOGE("%s psram buff[1] malloc failed\n", __func__);
++                break;
++            }
++
++            p_frame = g_lvgl_psram_buff[1];
++            break;
++        }
++    } while(0);
++
++    return p_frame;
++
++}
++
++void lv_display_frame_psram_free(uint8_t *frame)
++{
++    if (frame == g_lvgl_psram_buff[0]->frame) {
++        frame_buffer_display_free(g_lvgl_psram_buff[0]);
++        g_lvgl_psram_buff[0] = NULL;
++    } else if (frame == g_lvgl_psram_buff[1]->frame) {
++        frame_buffer_display_free(g_lvgl_psram_buff[1]);
++        g_lvgl_psram_buff[1] = NULL;
++    }
++}
++
+diff --git a/components/lvgl/port/lv_port_disp.c b/components/lvgl/port/lv_port_disp.c
+index 996e416..15bbbd8 100755
+--- a/components/lvgl/port/lv_port_disp.c
++++ b/components/lvgl/port/lv_port_disp.c
+@@ -65,7 +65,7 @@ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_colo
+  **********************/
+ static void *rotate_buffer = NULL;
+ static beken_semaphore_t lv_dma2d_sem = NULL;
+-static uint8_t lv_dma2d_use_flag = 0;
++uint8_t lv_dma2d_use_flag = 0;
+ frame_buffer_t *lvgl_frame_buffer = NULL;
+ extern lv_vnd_config_t vendor_config;
+ extern media_debug_t *media_debug;
+@@ -428,9 +428,24 @@ static void lv_image_rotate90_clockwise(void *dst, void *src, lv_coord_t width,
+ #endif
+ }
+ 
++static void _canvas_rect_join(const lv_area_t *r_src, lv_area_t *r_out)
++{
++    lv_area_t *r1 = r_out;
++
++    r_out->x1 = min(r1->x1, r_src->x1);
++    if((r_out->x1 & 0x1) != 0)
++        r_out->x1 -= 1;
++    r_out->y1 = min(r1->y1, r_src->y1);
++    r_out->x2 = max(r1->x2, r_src->x2);
++    if((r_out->x2 & 0x1) != 0)
++        r_out->x2 += 1;
++    r_out->y2 = max(r1->y2, r_src->y2);
++}
++
+ /*Flush the content of the internal buffer the specific area on the display
+  *You can use DMA or any hardware acceleration to do this operation in the background but
+  *'lv_disp_flush_ready()' has to be called when finished.*/
++void lcd_display_frame_for_lvgl(uint8_t *frame, bool sync);
+ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_color_t * color_p)
+ {
+ #if (!LVGL_USE_PSRAM)
+@@ -440,6 +455,7 @@ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_colo
+         static u8 disp_buff_index = DISPLAY_BUFFER_DEF;
+         lv_color_t *disp_buf1 = vendor_config.frame_buf_1;
+         lv_color_t *disp_buf2 = vendor_config.frame_buf_2;
++        static lv_area_t update_area = {0};
+ 
+         lv_coord_t lv_hor = LV_HOR_RES;
+         lv_coord_t lv_ver = LV_VER_RES;
+@@ -466,6 +482,11 @@ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_colo
+             disp_buf = disp_buf1;
+         }
+ 
++        if(2 == lv_vendor_display_frame_cnt())
++        {
++            _canvas_rect_join(area, &update_area);
++        }
++
+         if ((ROTATE_NONE == vendor_config.rotation) || (ROTATE_180 == vendor_config.rotation)) {
+             if (lv_vendor_draw_buffer_cnt() == 2) {
+                 lv_dma2d_memcpy_draw_buffer(color_ptr, width, height, disp_buf, area->x1, area->y1);
+@@ -508,28 +529,39 @@ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_colo
+             #elif (CONFIG_LCD_SPI_DISPLAY)
+                 lcd_spi_display_frame((uint8_t *)disp_buf, lv_hor, lv_ver);
+             #else
+-            lvgl_frame_buffer->frame = (uint8_t *)disp_buf;
++            // lvgl_frame_buffer->frame = (uint8_t *)disp_buf;
+             #if (!CONFIG_LV_USE_DEMO_BENCHMARK)
+                 if (lv_vendor_draw_buffer_cnt() == 2) {
+                     lv_dma2d_memcpy_wait_transfer_finish();
+                 }
+             #endif
+-            lcd_display_frame_request(lvgl_frame_buffer);
++            lcd_display_frame_for_lvgl((uint8 *)disp_buf, false);
+             #endif
+ 
+             if(disp_buf2) {
++                int offset, c_height, c_width;
++                if ((ROTATE_NONE == vendor_config.rotation) || (ROTATE_180 == vendor_config.rotation))
++                {
++                    update_area.x1 = 0;
++                    update_area.x2 = LV_HOR_RES - 1;
++                    offset = (LV_HOR_RES * update_area.y1 + update_area.x1);
++                    c_width = lv_area_get_width(&update_area);
++                    c_height = lv_area_get_height(&update_area);
++                }
++                else if (ROTATE_270 == vendor_config.rotation)
++                {
++                    update_area.y1 = 0;
++                    update_area.y2 = LV_VER_RES - 1;
++                    offset = update_area.x1 * lv_ver + (lv_ver - update_area.y2 - 1);
++                    c_height = lv_area_get_width(&update_area);
++                    c_width = lv_area_get_height(&update_area);
++                }
++                else// if (ROTATE_90 == vendor_config.rotation)
++                {
++                    update_area.y1 = 0;
++                    update_area.y2 = LV_VER_RES - 1;
++                    offset = (lv_hor - (update_area.x2 + 1)) * lv_ver + update_area.y1;
++                    c_height = lv_area_get_width(&update_area);
++                    c_width = lv_area_get_height(&update_area);
++                }
++
+                 if (DISPLAY_BUFFER_1 == disp_buff_index) {
+-                    lv_dma2d_memcpy_last_frame(disp_buf, disp_buf1, lv_hor, lv_ver, 0, 0);
++                    lv_dma2d_memcpy_last_frame(disp_buf+offset, disp_buf1+offset, c_width, c_height, 0, 0);
+                     disp_buff_index = 2;
+                 } else if (DISPLAY_BUFFER_2 == disp_buff_index) {
+-                    lv_dma2d_memcpy_last_frame(disp_buf, disp_buf2, lv_hor, lv_ver, 0, 0);
++                    lv_dma2d_memcpy_last_frame(disp_buf+offset, disp_buf2+offset, c_width, c_height, 0, 0);
+                     disp_buff_index = 1;
+                 }
+                 else //first display
+                 {
+-                    lv_dma2d_memcpy_last_frame(disp_buf, disp_buf2, lv_hor, lv_ver, 0, 0);
++                    lv_dma2d_memcpy_last_frame(disp_buf+offset, disp_buf2+offset, c_width, c_height, 0, 0);
+                     disp_buff_index = 2;
+                 }
++                update_area.x1 = 2048;
++                update_area.x2 = 0;
++                update_area.y1 = 2048;
++                update_area.y2 = 0;
+             }
+         }
+     }
+diff --git a/components/multimedia/pipeline/yuv_encode.h b/components/multimedia/pipeline/yuv_encode.h
+index 2a9f853..8df021d 100755
+--- a/components/multimedia/pipeline/yuv_encode.h
++++ b/components/multimedia/pipeline/yuv_encode.h
+@@ -132,7 +132,11 @@ bk_err_t scale_task_open(lcd_scale_t *lcd_scale);
+ bk_err_t scale_task_close(void);
+ bk_err_t scale_task_send_msg(uint8_t type, uint32_t param);
+ 
+-bk_err_t lcd_display_frame_request(frame_buffer_t *frame);
++bk_err_t lcd_display_frame_request(frame_buffer_t *frame);
++BOOLEAN lv_display_frame_is_use_frame_malloc(void);
++frame_buffer_t *lv_display_frame_get(uint8_t *frame);
++frame_buffer_t *lv_display_frame_psram_malloc(uint32_t size);
++void lv_display_frame_psram_free(uint8_t *frame);
+ bk_err_t jpeg_decode_list_push(frame_buffer_t *frame, LIST_HEADER_T *list);
+ frame_buffer_t *jpeg_decode_list_pop(LIST_HEADER_T *list);
+ uint8_t jpeg_decode_list_del_node(frame_buffer_t *frame, LIST_HEADER_T *list);
+-- 
+2.39.5
+
