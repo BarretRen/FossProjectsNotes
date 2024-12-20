@@ -52,6 +52,12 @@ img cache 涉及到的内存占用:
 1. 修改刷新周期`LV_DISP_DEF_REFR_PERIOD`
 1. `LV_DPI_DEF`设置, 会影响动画的效果, 例如 480x272 分辨率 1.28 英寸的屏幕，那么$$DPI = ((√480*272) / 1.28) ≈ 89$$
 1. 帧缓存区不要低于屏幕的 1/4，建议双缓存
-1. lvgl的高级效果关掉也能提升一些帧率
-1. 关闭lvgl中的assert
+1. lvgl 的高级效果关掉也能提升一些帧率
+1. 关闭 lvgl 中的 assert
 1. 图片的宽度和控件的位置最好都是偶数
+
+参考下面的 code diff
+
+- [双 buf 只复制更新区域](0001-双buf局部区域更新.patch)
+- [竖屏横用旋转优化](0002-竖屏横用旋转优化算法.patch)
+- [lvgl 代码段单独存放](0003-lvgl_draw-section-and-lv_code_load_psram.patch)

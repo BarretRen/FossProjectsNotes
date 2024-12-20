@@ -1,0 +1,274 @@
+From e964289b320a44783f36e356e7dd24e53cbdb5ad Mon Sep 17 00:00:00 2001
+From: Ren xiuhu <xiuhu.ren@bekencorp.com>
+Date: Mon, 2 Dec 2024 15:30:49 +0800
+Subject: [PATCH 2/6] =?UTF-8?q?=E5=90=8C=E6=AD=A5=E5=B9=B4=E5=88=9D3.1?=
+ =?UTF-8?q?=E5=AF=B8=E5=B1=8F=E7=AB=96=E5=B1=8F=E6=A8=AA=E7=94=A8=E6=97=8B?=
+ =?UTF-8?q?=E8=BD=AC=E4=BC=98=E5=8C=96=E7=AE=97=E6=B3=95?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ components/lvgl/port/lv_port_disp.c           | 163 ++++++++++++++----
+ projects/lvgl/fotile/config/bk7258_cp1/config |   2 +-
+ projects/lvgl/fotile/main/widgets_main.c      |   8 +-
+ 3 files changed, 130 insertions(+), 43 deletions(-)
+
+diff --git a/components/lvgl/port/lv_port_disp.c b/components/lvgl/port/lv_port_disp.c
+index 15bbbd8..237e307 100755
+--- a/components/lvgl/port/lv_port_disp.c
++++ b/components/lvgl/port/lv_port_disp.c
+@@ -63,7 +63,7 @@ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_colo
+ /**********************
+  *   GLOBAL FUNCTIONS
+  **********************/
+-static void *rotate_buffer = NULL;
++static void *g_col_buffer = NULL;
+ static beken_semaphore_t lv_dma2d_sem = NULL;
+ uint8_t lv_dma2d_use_flag = 0;
+ frame_buffer_t *lvgl_frame_buffer = NULL;
+@@ -164,8 +164,8 @@ int lv_port_disp_init(void)
+     }
+ 
+     if ((vendor_config.rotation == ROTATE_90) || (vendor_config.rotation == ROTATE_270)) {
+-        rotate_buffer = os_malloc(vendor_config.draw_pixel_size * sizeof(lv_color_t));
+-        if (rotate_buffer == NULL) {
++        g_col_buffer = os_malloc(vendor_config.lcd_hor_res * sizeof(lv_color_t));
++        if (g_col_buffer == NULL) {
+             LOGE("lvgl rotate buffer malloc fail!\n");
+             return BK_FAIL;
+         }
+@@ -188,8 +188,9 @@ int lv_port_disp_init(void)
+ void lv_port_disp_deinit(void)
+ {
+     if ((vendor_config.rotation == ROTATE_90) || (vendor_config.rotation == ROTATE_270)) {
+-        if (rotate_buffer) {
+-            os_free(rotate_buffer);
++        if (g_col_buffer) {
++            os_free(g_col_buffer);
++            g_col_buffer = NULL;
+         }
+     }
+ 
+@@ -410,22 +411,126 @@ static lv_color_t *update_dual_buffer_with_direct_mode(lv_disp_drv_t *disp_drv,
+     return buf_cpy;
+ }
+ 
+-static void lv_image_rotate90_anticlockwise(void *dst, void *src, lv_coord_t width, lv_coord_t height)
++#define LV_ROTATE90_ANTICLOCKWISE() \
++do{\
++    lv_color_t *src_ptr = NULL;\
++    lv_color_t *dst_ptr = dst;\
++    lv_color_t *col_buff_ptr = NULL;\
++    \
++    for (j = width; j > 0; j--) {\
++        src_ptr = (lv_color_t *)src + j - 1;\
++        offset = 0;\
++        align_len = 0;\
++        dst_offset = (width - j + rotate_area.y1)*LV_VER_RES + rotate_area.x1;\
++        col_buff_ptr = (lv_color_t *)g_col_buffer;\
++        \
++        if((area->y1 & 0x1) != 0)\
++        {\
++            align_len++;\
++            *(col_buff_ptr++) = *(dst_ptr + dst_offset - 1);\
++        }\
++        \
++        for (i = 0; i < height; i++) {\
++            *(col_buff_ptr++) = *(src_ptr + offset);\
++            offset += width;\
++        }\
++        \
++        if((area->y2 & 0x1) == 0)\
++        {\
++            *(col_buff_ptr++) = *(dst_ptr + dst_offset + height + 1);\
++            align_len++;\
++        }\
++        \
++        if((area->y1 & 0x1) != 0)\
++        {\
++            os_memcpy_word((uint32_t *)(dst_ptr+dst_offset-1), (const uint32_t *)g_col_buffer, (height+align_len)<<1);\
++        }\
++        else\
++        {\
++            os_memcpy_word((uint32_t *)(dst_ptr+dst_offset), (const uint32_t *)g_col_buffer, (height+align_len)<<1);\
++        }\
++    }\
++}while(0);
++
++#define LV_ROTATE90_CLOCK_WISE()   \
++do{\
++    lv_color_t *dst_ptr = (lv_color_t *)dst; \
++    lv_color_t *src_ptr = (lv_color_t *)src; \
++    lv_color_t *col_buff_ptr = NULL; \
++    int temp_width = width * height; \
++    \
++    for (j = 0; j < width; j++)  \
++    { \
++        src_ptr = (lv_color_t *)src + j; \
++        current_width = temp_width; \
++        align_len = 0; \
++        dst_offset = (rotate_area.y1 + j)*LV_VER_RES + rotate_area.x1; \
++        col_buff_ptr = (lv_color_t *)g_col_buffer; \
++         \
++        if((rotate_area.x1 & 0x1) != 0) \
++        { \
++            align_len++; \
++            *(col_buff_ptr++) = *(dst_ptr + dst_offset - 1); \
++        } \
++        \
++        for (i = height; i > 0; i--)  \
++        { \
++            current_width -= width; \
++            *(col_buff_ptr++) = *(src_ptr + current_width); \
++        } \
++        \
++        if((rotate_area.x2 & 0x1) == 0) \
++        { \
++            *(col_buff_ptr++) = *(dst_ptr + dst_offset + height + 1); \
++            align_len++; \
++        } \
++        \
++        if((rotate_area.x1 & 0x1) != 0) \
++        {\
++            os_memcpy_word((uint32_t *)(dst_ptr+dst_offset-1), (const uint32_t *)g_col_buffer, (height+align_len)<<1); \
++        }\
++        else \
++        { \
++            os_memcpy_word((uint32_t *)(dst_ptr+dst_offset), (const uint32_t *)g_col_buffer, (height+align_len)<<1); \
++        } \
++    } \
++}while(0);
++
++static void lv_image_rotate90_anticlockwise(void *dst, lv_color_t *src, const lv_area_t *area)
+ {
+-#if (LV_COLOR_DEPTH == 16)
+-    rgb565_rotate_degree270((unsigned char *)src, (unsigned char *)dst, width, height);
+-#elif (LV_COLOR_DEPTH == 32)
+-    argb8888_rotate_degree270((unsigned char *)src, (unsigned char *)dst, width, height);
+-#endif
++    int dst_offset = 0;
++    int i = 0, j = 0;
++    u8 align_len = 0;
++    int offset = 0;
++    int width = lv_area_get_width(area);
++    int height = lv_area_get_height(area);
++    lv_area_t rotate_area;
++
++    rotate_area.x1 = area->y1;
++    rotate_area.y1 = (LV_HOR_RES - 1 - area->x2);
++    rotate_area.x2 = area->y2;
++    rotate_area.y2 = (LV_HOR_RES - 1 - area->x1);
++
++    LV_ROTATE90_ANTICLOCKWISE();
+ }
+ 
+-static void lv_image_rotate90_clockwise(void *dst, void *src, lv_coord_t width, lv_coord_t height)
++static void lv_image_rotate90_clockwise(void *dst, lv_color_t *src, const lv_area_t *area)
+ {
+-#if (LV_COLOR_DEPTH == 16)
+-    rgb565_rotate_degree90((unsigned char *)src, (unsigned char *)dst, width, height);
+-#elif (LV_COLOR_DEPTH == 32)
+-    argb8888_rotate_degree90((unsigned char *)src, (unsigned char *)dst, width, height);
+-#endif
++    int i, j;
++    int current_width = 0;
++    int width, height;
++    u8 align_len = 0;
++    int dst_offset = 0;
++    lv_area_t rotate_area;
++
++    width = lv_area_get_width(area);
++    height = lv_area_get_height(area);
++    rotate_area.x1 = (LV_VER_RES - 1 - area->y2);
++    rotate_area.y1 = area->x1;
++    rotate_area.x2 = (LV_VER_RES - 1 - area->y1);
++    rotate_area.y2 = area->x2;
++    
++    LV_ROTATE90_CLOCK_WISE();
+ }
+ 
+ static void _canvas_rect_join(const lv_area_t *r_src, lv_area_t *r_out)
+@@ -458,7 +563,7 @@ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_colo
+         static lv_area_t update_area = {0};
+ 
+         lv_coord_t lv_hor = LV_HOR_RES;
+-        lv_coord_t lv_ver = LV_VER_RES;
++        // lv_coord_t lv_ver = LV_VER_RES;
+ 
+         int y = 0;
+         int offset = 0;
+@@ -499,27 +604,9 @@ static void disp_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_colo
+                 }
+             }
+         } else if (ROTATE_270 == vendor_config.rotation) {
+-            lv_color_t *dst_ptr = rotate_buffer;
+-
+-            lv_image_rotate90_clockwise(rotate_buffer, color_p, width, height);
+-
+-            offset = area->x1 * lv_ver + (lv_ver - area->y2 - 1);
+-            for (y = area->x1; y <= area->x2 && y < disp_drv->hor_res; y++) {
+-                lv_memcpy_one_line(disp_buf + offset, dst_ptr, height);
+-                offset += lv_ver;
+-                dst_ptr += height;
+-            }
++            lv_image_rotate90_clockwise(disp_buf, color_p, area);
+         } else if (ROTATE_90 == vendor_config.rotation) {
+-            lv_color_t *dst_ptr = rotate_buffer;
+-
+-            lv_image_rotate90_anticlockwise(rotate_buffer, color_p, width, height);
+-
+-            offset = (lv_hor - (area->x2 + 1)) * lv_ver + area->y1;
+-            for (y = lv_hor - (area->x2 + 1); y <= lv_hor - (area->x1 + 1) && y < disp_drv->hor_res; y++) {
+-                lv_memcpy_one_line(disp_buf + offset, dst_ptr, height);
+-                offset += lv_ver;
+-                dst_ptr += height;
+-            }
++            lv_image_rotate90_anticlockwise(disp_buf, color_p, area);
+         }
+ 
+         if (lv_disp_flush_is_last(disp_drv)) {
+diff --git a/projects/lvgl/fotile/config/bk7258_cp1/config b/projects/lvgl/fotile/config/bk7258_cp1/config
+index 7f4d72d..bbfbac1 100755
+--- a/projects/lvgl/fotile/config/bk7258_cp1/config
++++ b/projects/lvgl/fotile/config/bk7258_cp1/config
+@@ -50,7 +50,7 @@ CONFIG_OVERRIDE_FLASH_PARTITION=y
+ 
+ CONFIG_PSRAM_HEAP_BASE=0x60002000
+ CONFIG_PSRAM_HEAP_CPU0_BASE_ADDER=0x60001000
+-CONFIG_PSRAM_HEAP_SIZE=0x6FE000
++CONFIG_PSRAM_HEAP_SIZE=0x5FE000
+ 
+ CONFIG_PSRAM_MEM_SLAB_USER_SIZE=1024
+ CONFIG_PSRAM_MEM_SLAB_AUDIO_SIZE=1024
+diff --git a/projects/lvgl/fotile/main/widgets_main.c b/projects/lvgl/fotile/main/widgets_main.c
+index d54c5cd..b5757b7 100755
+--- a/projects/lvgl/fotile/main/widgets_main.c
++++ b/projects/lvgl/fotile/main/widgets_main.c
+@@ -76,9 +76,9 @@ void lvgl_event_handle(media_mailbox_msg_t *msg)
+ 
+ 	lv_vnd_config.draw_pixel_size = ppi_to_pixel_x(lcd_open->device_ppi) * ppi_to_pixel_y(lcd_open->device_ppi);
+ 	lv_vnd_config.draw_buf_2_1 = (lv_color_t *)PSRAM_DRAW_BUFFER;
+-	lv_vnd_config.draw_buf_2_2 = (lv_color_t *)(PSRAM_DRAW_BUFFER + lv_vnd_config->draw_pixel_size * sizeof(lv_color_t));
++	lv_vnd_config.draw_buf_2_2 = (lv_color_t *)(PSRAM_DRAW_BUFFER + lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
+ #else
+-#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 7 * 1024 * 1024)
++#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 6 * 1024 * 1024)
+ 	lv_vnd_config.draw_pixel_size = (30 * 1024) / sizeof(lv_color_t);
+ 	lv_vnd_config.draw_buf_2_1 = LV_MEM_CUSTOM_ALLOC(lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
+ 	lv_vnd_config.draw_buf_2_2 = NULL;
+@@ -242,9 +242,9 @@ static int media_ipc_lvgl_callback(uint8_t *data, uint32_t size, void *param)
+ 
+ 	lv_vnd_config.draw_pixel_size = ppi_to_pixel_x(lcd_open->device_ppi) * ppi_to_pixel_y(lcd_open->device_ppi);
+ 	lv_vnd_config.draw_buf_2_1 = (lv_color_t *)PSRAM_DRAW_BUFFER;
+-	lv_vnd_config.draw_buf_2_2 = (lv_color_t *)(PSRAM_DRAW_BUFFER + lv_vnd_config->draw_pixel_size * sizeof(lv_color_t));
++	lv_vnd_config.draw_buf_2_2 = (lv_color_t *)(PSRAM_DRAW_BUFFER + lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
+ #else
+-#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 7 * 1024 * 1024)
++#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 6 * 1024 * 1024)
+ 	lv_vnd_config.draw_pixel_size = (30 * 1024) / sizeof(lv_color_t);
+ 	lv_vnd_config.draw_buf_2_1 = LV_MEM_CUSTOM_ALLOC(lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
+ 	lv_vnd_config.draw_buf_2_2 = NULL;
+-- 
+2.39.5
+

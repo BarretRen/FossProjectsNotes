@@ -1,0 +1,577 @@
+From 8fad914edcca9f4b60a289721feecc1e3ac0fc57 Mon Sep 17 00:00:00 2001
+From: Ren xiuhu <xiuhu.ren@bekencorp.com>
+Date: Wed, 4 Dec 2024 09:54:10 +0800
+Subject: [PATCH 3/6] lvgl_draw section and lv_code_load_psram
+ CONFIG_LV_ATTRIBUTE_FAST_MEM support
+
+---
+ components/lvgl/lv_conf.h                     |   4 +-
+ components/lvgl/src/draw/lv_draw_label.c      |   2 +-
+ projects/lvgl/fotile/bk7258_cp1_bsp.ld        | 404 ++++++++++++++++++
+ projects/lvgl/fotile/config/bk7258/config     |   1 +
+ projects/lvgl/fotile/config/bk7258_cp1/config |   6 +-
+ projects/lvgl/fotile/main/widgets_main.c      |  42 +-
+ 6 files changed, 447 insertions(+), 12 deletions(-)
+ create mode 100755 projects/lvgl/fotile/bk7258_cp1_bsp.ld
+
+diff --git a/components/lvgl/lv_conf.h b/components/lvgl/lv_conf.h
+index a095b6d..43a1bcc 100755
+--- a/components/lvgl/lv_conf.h
++++ b/components/lvgl/lv_conf.h
+@@ -67,10 +67,10 @@
+  *====================*/
+ 
+ /*Default display refresh period. LVG will redraw changed areas with this period time*/
+-#define LV_DISP_DEF_REFR_PERIOD 30      /*[ms]*/
++#define LV_DISP_DEF_REFR_PERIOD 10      /*[ms]*/
+ 
+ /*Input device read period in milliseconds*/
+-#define LV_INDEV_DEF_READ_PERIOD 30     /*[ms]*/
++#define LV_INDEV_DEF_READ_PERIOD 10     /*[ms]*/
+ 
+ /*Use a custom tick source that tells the elapsed time in milliseconds.
+  *It removes the need to manually update the tick with `lv_tick_inc()`)*/
+diff --git a/components/lvgl/src/draw/lv_draw_label.c b/components/lvgl/src/draw/lv_draw_label.c
+index 558b46c..4fa0dd0 100755
+--- a/components/lvgl/src/draw/lv_draw_label.c
++++ b/components/lvgl/src/draw/lv_draw_label.c
+@@ -74,7 +74,7 @@ void /*LV_ATTRIBUTE_FAST_MEM*/ lv_draw_label_dsc_init(lv_draw_label_dsc_t * dsc)
+  * @param hint pointer to a `lv_draw_label_hint_t` variable.
+  * It is managed by the draw to speed up the drawing of very long texts (thousands of lines).
+  */
+-void LV_ATTRIBUTE_FAST_MEM lv_draw_label(lv_draw_ctx_t * draw_ctx, const lv_draw_label_dsc_t * dsc,
++void lv_draw_label(lv_draw_ctx_t * draw_ctx, const lv_draw_label_dsc_t * dsc,
+                                          const lv_area_t * coords, const char * txt, lv_draw_label_hint_t * hint)
+ {
+     if(dsc->opa <= LV_OPA_MIN) return;
+diff --git a/projects/lvgl/fotile/bk7258_cp1_bsp.ld b/projects/lvgl/fotile/bk7258_cp1_bsp.ld
+new file mode 100755
+index 0000000..c631015
+--- /dev/null
++++ b/projects/lvgl/fotile/bk7258_cp1_bsp.ld
+@@ -0,0 +1,404 @@
++/*
++ * Copyright (C), 2018-2019, Arm Technology (China) Co., Ltd.
++ * All rights reserved
++ *
++ * The content of this file or document is CONFIDENTIAL and PROPRIETARY
++ * to Arm Technology (China) Co., Ltd. It is subject to the terms of a
++ * License Agreement between Licensee and Arm Technology (China) Co., Ltd
++ * restricting among other things, the use, reproduction, distribution
++ * and transfer.  Each of the embodiments, including this information and,,
++ * any derivative work shall retain this copyright notice.
++ */
++
++#include "soc/bk7258/reg_base.h"
++#include "partitions.h"
++#include "sdkconfig.h"
++
++OUTPUT_FORMAT("elf32-littlearm", "elf32-bigarm", "elf32-littlearm")
++
++__MSP_STACK_SIZE = (4 << 10);
++__MIN_HEAP_SIZE  = (32 << 10);
++__MPU_PROTECT_SIZE = 0x0;
++
++__SWAP_SIZE = (2048);
++
++#if CONFIG_CPU0_SRAM_BASE
++__PRIMARY_APP_RAM_BASE = CONFIG_CPU0_SRAM_BASE;
++#else
++__PRIMARY_APP_RAM_BASE = SOC_SRAM0_DATA_BASE;
++#endif
++
++__BT_SRAM_BASE = __PRIMARY_APP_RAM_BASE + CONFIG_CPU0_SPE_RAM_SIZE;
++#if (CONFIG_BT_REUSE_MEDIA_MEMORY)
++__BT_SRAM_SIZE = CONFIG_BT_REUSE_MEDIA_MEM_SIZE;
++#else
++__BT_SRAM_SIZE = 0;
++#endif
++
++#if CONFIG_LVGL_SRAM_MAPPING
++#if CONFIG_LV_ATTRIBUTE_FAST_MEM_L2
++__LVGL_SRAM_CODE_SIZE = 0x1000;
++#else
++__LVGL_SRAM_CODE_SIZE = 0;
++#endif
++__LVGL_SRAM_SIZE = 0x10000;
++#endif
++
++__CPU1_APP_RAM_BASE = __BT_SRAM_BASE + __BT_SRAM_SIZE;
++#if CONFIG_LVGL_SRAM_MAPPING
++__CPU1_APP_RAM_SIZE = CONFIG_CPU1_APP_RAM_SIZE - __BT_SRAM_SIZE - __LVGL_SRAM_SIZE;
++#else
++__CPU1_APP_RAM_SIZE = CONFIG_CPU1_APP_RAM_SIZE - __BT_SRAM_SIZE;
++#endif
++
++MEMORY
++{
++  FLASH (rx)            : ORIGIN = (SOC_FLASH_DATA_BASE + CONFIG_PRIMARY_CPU1_APP_VIRTUAL_CODE_START), LENGTH = CONFIG_PRIMARY_CPU1_APP_VIRTUAL_CODE_SIZE
++#if (CONFIG_BT_REUSE_MEDIA_MEMORY)
++  SRAM_BT (rwx)         : ORIGIN = __BT_SRAM_BASE, LENGTH = __BT_SRAM_SIZE 
++#endif
++  RAM (rwx)             : ORIGIN = __CPU1_APP_RAM_BASE, LENGTH = __CPU1_APP_RAM_SIZE
++
++#if CONFIG_LVGL_SRAM_MAPPING
++#if CONFIG_LV_ATTRIBUTE_FAST_MEM_L2
++  LVGL_SRAM_CODE (rx)   : ORIGIN = (__CPU1_APP_RAM_BASE + __CPU1_APP_RAM_SIZE), LENGTH = __LVGL_SRAM_CODE_SIZE
++#endif
++  LVGL (rwx)            : ORIGIN = (__CPU1_APP_RAM_BASE + __CPU1_APP_RAM_SIZE + __LVGL_SRAM_CODE_SIZE), LENGTH = __LVGL_SRAM_SIZE - __LVGL_SRAM_CODE_SIZE
++#endif
++
++  ITCM (rwx)            : ORIGIN = SOC_ITCM_DATA_BASE + __MPU_PROTECT_SIZE, LENGTH = CONFIG_ITCM_SIZE - __MPU_PROTECT_SIZE
++  DTCM (rwx)            : ORIGIN = SOC_DTCM_DATA_BASE, LENGTH = CONFIG_DTCM_SIZE
++  SWAP (rwx)            : ORIGIN = __PRIMARY_APP_RAM_BASE + CONFIG_CPU0_SPE_RAM_SIZE - __SWAP_SIZE, LENGTH = __SWAP_SIZE
++  PSRAM (rwx)           : ORIGIN = SOC_PSRAM_DATA_BASE, LENGTH = 0x4000000
++#if CONFIG_LV_CODE_LOAD_PSRAM
++  LVGL_PSRAM_CODE (rx)  : ORIGIN = 0x60900000,  LENGTH = 0x50000
++#endif
++}
++
++ENTRY(Reset_Handler)
++
++SECTIONS
++{
++
++    ASSERT((. == ALIGN(512)), "vector table address align fault.")
++    .vectors :
++    {
++        __vector_table = .;
++        KEEP(*(.vectors))
++        . = ALIGN(128);
++    } > FLASH
++
++    .gnu.sgstubs ALIGN(32) : ALIGN(32)
++    {
++        *(.gnu.sgstubs*)
++        . = ALIGN(32);
++    } > FLASH
++
++    .text :
++    {
++        . = ALIGN(4);
++        _stext = .;
++
++        . = ALIGN(4);
++        __devconfig_start = .;
++        *(".devconfig.*")
++        KEEP(*(SORT_BY_NAME(".devconfig*")))
++        __devconfig_end = .;
++
++        . = ALIGN(4);
++        __apps_start = .;
++        KEEP (*(.apps_data))
++        __apps_end = .;
++        _etext = .;
++        . = ALIGN(4);
++    } > FLASH
++
++    .a_device_null :
++    {
++      KEEP(*(.a_deviceobj_null))
++    } > FLASH
++
++    .a_devices :
++    {
++      __device_start = .;
++      KEEP(*(.a_deviceobj_*))
++      __device_end = .;
++    } > FLASH
++
++    .a_init_entries :
++    {
++      __a_init_start = .;
++      KEEP(*(.a_init_entry_*))
++      __a_init_end = .;
++    } > FLASH
++
++    .ARM.extab :
++    {
++        *(.ARM.extab* .gnu.linkonce.armextab.*)
++        . = ALIGN(4);
++    } > FLASH
++
++    __exidx_start = .;
++    .ARM.exidx :
++    {
++        *(.ARM.exidx* .gnu.linkonce.armexidx.*)
++    } > FLASH
++    __exidx_end = .;
++
++    .copy.table :
++    {
++        . = ALIGN(4);
++        __copy_table_start__ = .;
++        LONG (__etext)
++        LONG (__iram_start__)
++        LONG ((__data_end__ - __iram_start__) / 4)
++
++        /* Add each additional data section here */
++        LONG (__etext2)
++        LONG (__data2_start__)
++        LONG ((__data2_end__ - __data2_start__) / 4)
++
++        LONG (__dtcm_data)
++        LONG (__dtcm_start__)
++        LONG ((__dtcm_end__ - __dtcm_start__) / 4)
++
++        LONG (__itcm_text)
++        LONG (__itcm_start__)
++        LONG ((__itcm_end__ - __itcm_start__) / 4)
++#if CONFIG_LV_CODE_LOAD_PSRAM
++		LONG (__lvgl_psram_code)
++        LONG (__lvgl_psram_code_start)
++        LONG ((__lvgl_psram_code_end - __lvgl_psram_code_start) / 4)
++#endif
++#if CONFIG_LV_ATTRIBUTE_FAST_MEM_L2
++        LONG (__lvgl_sram_code)
++        LONG (__lvgl_sram_code_start)
++        LONG ((__lvgl_sram_code_end - __lvgl_sram_code_start) / 4)
++#endif
++        __copy_table_end__ = .;
++    } > FLASH
++
++    .zero.table :
++    {
++        . = ALIGN(4);
++        __zero_table_start__ = .;
++        LONG (_bss_start)
++        LONG ((_bss_end - _bss_start) / 4)
++        LONG (_heap_start)
++        LONG ((_heap_end - _heap_start) / 4)
++        /* Add each additional bss section here */
++        LONG (__bss2_start__)
++        LONG ((__bss2_end__ - __bss2_start__) / 4)
++#if CONFIG_LVGL_SRAM_MAPPING
++		LONG (__lvgl_start)
++        LONG ((__lvgl_end - __lvgl_start) / 4)
++#endif
++        __zero_table_end__ = .;
++    } > FLASH
++
++#if (CONFIG_BT_REUSE_MEDIA_MEMORY)
++    .sram_bt (NOLOAD):
++    {
++        . = ALIGN(32);
++        PROVIDE(_bt_data_lmastart = LOADADDR(.sram_bt));
++        _bt_data_start = .;
++        KEEP(*(.bt_spec_data ))
++        KEEP(*(.ble_bss_data ))
++        . = ALIGN(4);
++        _bt_data_end = .;
++    } > SRAM_BT AT > FLASH
++#endif
++
++    .itcm :
++    {
++        . = ALIGN(4);
++        PROVIDE(__itcm_text = LOADADDR(.itcm));
++        __itcm_start__ = .;
++        KEEP(*(.null_trap_handler))
++
++
++        *(.itcm)
++        *(.itcm_section*)
++        *(.itcm_sec_code*)
++        *(.interrupt)
++        . = ALIGN(4);
++        __itcm_end__ = .;
++    } > ITCM AT > FLASH
++
++    .dtcm :
++    {
++        . = ALIGN(4);
++        PROVIDE(__dtcm_data = LOADADDR(.dtcm));
++        __dtcm_start__ = .;
++
++        *(.dtcm)
++        *(.dtcm_sec_data*)
++        . = ALIGN(4);
++
++        __dtcm_end__ = .;
++    } > DTCM AT > FLASH
++
++    .data :
++    {
++        . = ALIGN(512);
++        PROVIDE(__etext = LOADADDR(.data));
++        PROVIDE(__iram_flash_begin = LOADADDR(.data));
++        __iram_start__ = .;
++
++        . = ALIGN(512);
++        __vector_iram_table = .;
++        KEEP(*(.vectors_iram))
++        . = ALIGN(128);
++
++
++        *(.iram)
++        . = ALIGN(4);
++        __iram_end__ = .;
++
++        . = ALIGN(4);
++        __data_start__ = .;
++
++        *(.data)
++        *(".data.*")
++        *(.sdata)
++
++        *(.gnu.linkonce.d*)
++        . = ALIGN(4);
++        __data_end__ = .;
++    } > RAM AT > FLASH
++	
++#if CONFIG_LV_CODE_LOAD_PSRAM
++	.lvgl_psram_code : 
++	{
++        . = ALIGN(4);
++        PROVIDE(__lvgl_psram_code = LOADADDR(.lvgl_psram_code));
++		__lvgl_psram_code_start = .;
++		*(.text.lv_*)		
++		__lvgl_psram_code_end = .;
++	} > LVGL_PSRAM_CODE AT > FLASH
++#endif
++
++#if CONFIG_LV_ATTRIBUTE_FAST_MEM_L2
++	.lvgl_sram_code : 
++	{
++        . = ALIGN(4);
++        PROVIDE(__lvgl_sram_code = LOADADDR(.lvgl_sram_code));
++		__lvgl_sram_code_start = .;		
++        *(.sram_sec_code*)		
++		__lvgl_sram_code_end = .;
++	} > LVGL_SRAM_CODE AT > FLASH
++#endif
++
++    _data_flash_begin = LOADADDR(.data);
++    _data_ram_begin = ADDR(.data);
++    _data_ram_end = .;
++
++    s_rom_end = LOADADDR(.data) + SIZEOF(.data);
++
++    .uninitialized (NOLOAD):
++    {
++        . = ALIGN(32);
++        __uninitialized_start = .;
++        *(.uninitialized)
++        *(".uninitialized.*")
++        KEEP(*(.keep.uninitialized))
++        . = ALIGN(32);
++        __uninitialized_end = .;
++    } > RAM
++
++    .bss (NOLOAD):
++    {
++#if (!CONFIG_BT_REUSE_MEDIA_MEMORY)
++        . = ALIGN(32);
++        PROVIDE(_bt_data_lmastart = LOADADDR(.sram_bt));
++        _bt_data_start = .;
++        KEEP(*(.bt_spec_data ))
++        KEEP(*(.ble_bss_data ))
++        _bt_data_end = .;
++#endif
++        . = ALIGN(4);
++        _bss_start = .;
++        *(.bss)
++        *(.bss*)
++        *(COMMON)
++        . = ALIGN(4);
++        _bss_end = .;
++    } > RAM
++
++    bss_size = _bss_end - _bss_start;
++
++    .heap (COPY) :
++    {
++        . = ALIGN(8);
++        _heap_start = .;
++        . = . + (ORIGIN(RAM) + LENGTH(RAM) - __MSP_STACK_SIZE - _heap_start - 8); /* 16 bytes for boundary protection */
++        . = ALIGN(8);
++        _heap_end = .;
++    } > RAM
++
++    .stack (ORIGIN(RAM) + LENGTH(RAM) - __MSP_STACK_SIZE) (COPY) :
++    {
++        . = ALIGN(8);
++        _sstack = .;
++        __StackLimit = .;
++        . = . + __MSP_STACK_SIZE;
++        . = ALIGN(8);
++        __StackTop = .;
++        _estack = .;
++    } > RAM
++
++    .swap ORIGIN(SWAP):
++    {
++        . = ALIGN(8);
++        _swap_start = .;
++
++        * (.swap_data)
++        * (.swap_data*)
++        . = ALIGN(4);
++        _swap_end = .;
++    } > SWAP AT > FLASH
++
++#if CONFIG_LVGL_SRAM_MAPPING
++	.lvgl ORIGIN(LVGL) (NOLOAD):
++	{
++		. = ALIGN(4);
++		__lvgl_start = .;
++		*(.lvgl_draw)
++		*(.lvgl_draw*)
++		__lvgl_end = .;
++		
++	} > LVGL AT > FLASH
++#endif
++
++    .video.cache.data :
++    {
++        . = ALIGN(4);
++        PROVIDE(__etext2 = LOADADDR(.video.cache.data));
++        __data2_start__ = .;
++
++        *(.video_cache_data)
++        *(.video_cache_data*)
++
++        . = ALIGN(4);
++        __data2_end__ = .;
++    } > PSRAM AT > FLASH
++
++    .video_cache_bss (NOLOAD):
++    {
++        . = ALIGN(4);
++        __bss2_start__ = .;
++        *(.video_cache_bss)
++        *(.video_cache_bss*)
++        . = ALIGN(4);
++        __bss2_end__ = .;
++    } > PSRAM
++
++    /* Set stack top to end of RAM, and stack limit move down by
++     * size of stack_dummy section */
++    __MSPTop = ORIGIN(RAM) + LENGTH(RAM);
++    __MSPLimit = __MSPTop - __MSP_STACK_SIZE;
++
++    ASSERT((s_rom_end < ORIGIN(FLASH) + LENGTH(FLASH)), "ROM overflow!!!")
++    ASSERT(((ORIGIN(RAM) + LENGTH(RAM)) > (_heap_start + __MSP_STACK_SIZE + 8)), "Stack overflowed with bss")
++    ASSERT(((_heap_end - _heap_start) >= __MIN_HEAP_SIZE), "Heap smaller than minimize size 32K!!!")
++}
+diff --git a/projects/lvgl/fotile/config/bk7258/config b/projects/lvgl/fotile/config/bk7258/config
+index 14916f3..78d9d1e 100755
+--- a/projects/lvgl/fotile/config/bk7258/config
++++ b/projects/lvgl/fotile/config/bk7258/config
+@@ -29,3 +29,4 @@ CONFIG_GPIO_DEFAULT_SET_SUPPORT=y
+ CONFIG_USR_GPIO_CFG_EN=y
+ CONFIG_FOTILE_IOT_APP=y
+ CONFIG_SYS_CPU1_OFFSET=0x21c0000
++CONFIG_LV_CODE_LOAD_PSRAM=n
+diff --git a/projects/lvgl/fotile/config/bk7258_cp1/config b/projects/lvgl/fotile/config/bk7258_cp1/config
+index bbfbac1..c9e2c96 100755
+--- a/projects/lvgl/fotile/config/bk7258_cp1/config
++++ b/projects/lvgl/fotile/config/bk7258_cp1/config
+@@ -14,6 +14,7 @@ CONFIG_LV_FONT_MONTSERRAT_36=y
+ CONFIG_LV_FONT_SIMSUN_16_CJK=y
+ CONFIG_LV_USE_PERF_MONITOR=n
+ CONFIG_LV_ATTRIBUTE_FAST_MEM=n
++CONFIG_LV_ATTRIBUTE_FAST_MEM_L2=n
+ CONFIG_LVGL_USE_DIRECT_MODE=y
+ CONFIG_CACHE_ENABLE=y
+ CONFIG_MPU=y
+@@ -50,7 +51,7 @@ CONFIG_OVERRIDE_FLASH_PARTITION=y
+ 
+ CONFIG_PSRAM_HEAP_BASE=0x60002000
+ CONFIG_PSRAM_HEAP_CPU0_BASE_ADDER=0x60001000
+-CONFIG_PSRAM_HEAP_SIZE=0x5FE000
++CONFIG_PSRAM_HEAP_SIZE=0x6FE000
+ 
+ CONFIG_PSRAM_MEM_SLAB_USER_SIZE=1024
+ CONFIG_PSRAM_MEM_SLAB_AUDIO_SIZE=1024
+@@ -68,3 +69,6 @@ CONFIG_VFS_TEST=y
+ CONFIG_SPI_MST_FLASH=y
+ CONFIG_VFS_DEMO_USE_LITTLEFS=y
+ CONFIG_PWM=y
++
++CONFIG_LVGL_SRAM_MAPPING=n
++CONFIG_LV_CODE_LOAD_PSRAM=n
+diff --git a/projects/lvgl/fotile/main/widgets_main.c b/projects/lvgl/fotile/main/widgets_main.c
+index b5757b7..dbc5526 100755
+--- a/projects/lvgl/fotile/main/widgets_main.c
++++ b/projects/lvgl/fotile/main/widgets_main.c
+@@ -2,7 +2,7 @@
+ #include <components/system.h>
+ #include <os/os.h>
+ #include <components/shell_task.h>
+-
++#include <driver/pwr_clk.h>
+ #include "cli.h"
+ 
+ #include "lcd_act.h"
+@@ -21,6 +21,18 @@
+ #include "business_entry.h"
+ #endif
+ 
++#if (CONFIG_SYS_CPU1 && CONFIG_LVGL_SRAM_MAPPING)
++#ifndef CONFIG_LVGL_USE_PSRAM
++#if CONFIG_LV_ATTRIBUTE_FAST_MEM_L2
++#define DRAW_BUFFER_SIZE    (60 * 1024)
++#else
++#define DRAW_BUFFER_SIZE    (64 * 1024)
++#endif
++static __attribute__((section(".lvgl_draw"))) uint8_t draw_buf1[DRAW_BUFFER_SIZE];
++// static __attribute__((section(".lvgl_draw"))) uint8_t draw_buf2[DRAW_BUFFER_SIZE];
++#endif
++#endif
++
+ #define TAG "MAIN"
+ 
+ #define LOGI(...) BK_LOGI(TAG, ##__VA_ARGS__)
+@@ -78,10 +90,15 @@ void lvgl_event_handle(media_mailbox_msg_t *msg)
+ 	lv_vnd_config.draw_buf_2_1 = (lv_color_t *)PSRAM_DRAW_BUFFER;
+ 	lv_vnd_config.draw_buf_2_2 = (lv_color_t *)(PSRAM_DRAW_BUFFER + lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
+ #else
+-#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 6 * 1024 * 1024)
+-	lv_vnd_config.draw_pixel_size = (30 * 1024) / sizeof(lv_color_t);
+-	lv_vnd_config.draw_buf_2_1 = LV_MEM_CUSTOM_ALLOC(lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
+-	lv_vnd_config.draw_buf_2_2 = NULL;
++#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 7 * 1024 * 1024)
++#if CONFIG_LVGL_SRAM_MAPPING
++    lv_vnd_config.draw_pixel_size = DRAW_BUFFER_SIZE / sizeof(lv_color_t);
++	lv_vnd_config.draw_buf_2_1 = (lv_color_t *)draw_buf1;
++#else
++    lv_vnd_config.draw_pixel_size = (64 * 1024) / sizeof(lv_color_t);
++    lv_vnd_config.draw_buf_2_1 = LV_MEM_CUSTOM_ALLOC(lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
++#endif
++	lv_vnd_config.draw_buf_2_2 = NULL;//(lv_color_t *)draw_buf2;
+ 	lv_vnd_config.frame_buf_1 = (lv_color_t *)PSRAM_FRAME_BUFFER;
+ 	lv_vnd_config.frame_buf_2 = (lv_color_t *)(PSRAM_FRAME_BUFFER + ppi_to_pixel_x(lcd_open->device_ppi) * ppi_to_pixel_y(lcd_open->device_ppi) * sizeof(lv_color_t));
+ #endif
+@@ -244,9 +261,14 @@ static int media_ipc_lvgl_callback(uint8_t *data, uint32_t size, void *param)
+ 	lv_vnd_config.draw_buf_2_1 = (lv_color_t *)PSRAM_DRAW_BUFFER;
+ 	lv_vnd_config.draw_buf_2_2 = (lv_color_t *)(PSRAM_DRAW_BUFFER + lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
+ #else
+-#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 6 * 1024 * 1024)
+-	lv_vnd_config.draw_pixel_size = (30 * 1024) / sizeof(lv_color_t);
+-	lv_vnd_config.draw_buf_2_1 = LV_MEM_CUSTOM_ALLOC(lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
++#define PSRAM_FRAME_BUFFER ((0x60000000UL) + 7 * 1024 * 1024)
++#if CONFIG_LVGL_SRAM_MAPPING
++    lv_vnd_config.draw_pixel_size = DRAW_BUFFER_SIZE / sizeof(lv_color_t);
++    lv_vnd_config.draw_buf_2_1 = (lv_color_t *)draw_buf1;
++#else
++    lv_vnd_config.draw_pixel_size = (64 * 1024) / sizeof(lv_color_t);
++    lv_vnd_config.draw_buf_2_1 = LV_MEM_CUSTOM_ALLOC(lv_vnd_config.draw_pixel_size * sizeof(lv_color_t));
++#endif
+ 	lv_vnd_config.draw_buf_2_2 = NULL;
+ 	lv_vnd_config.frame_buf_1 = (lv_color_t *)PSRAM_FRAME_BUFFER;
+ 	lv_vnd_config.frame_buf_2 = (lv_color_t *)(PSRAM_FRAME_BUFFER + ppi_to_pixel_x(lcd_open->device_ppi) * ppi_to_pixel_y(lcd_open->device_ppi) * sizeof(lv_color_t));
+@@ -320,6 +342,10 @@ int main(void)
+ 	rtos_set_user_app_entry((beken_thread_function_t)user_app_main);
+ 	bk_set_printf_sync(true);
+ 	shell_set_log_level(BK_LOG_INFO);
++
++#if (CONFIG_LV_CODE_LOAD_PSRAM)
++    bk_pm_module_vote_psram_ctrl(PM_POWER_PSRAM_MODULE_NAME_LVGL_CODE_RUN, PM_POWER_MODULE_STATE_ON);
++#endif
+ #endif
+ 
+ 	bk_init();
+-- 
+2.39.5
+
