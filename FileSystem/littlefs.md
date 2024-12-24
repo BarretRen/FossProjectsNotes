@@ -13,6 +13,40 @@ LittleFS 是 ARM mbedOS 的官方推荐文件系统, 主要用在微控制器和
 - 擦写均衡, 有效延长 flash 的使用寿命
 - 节省 ROM 和 RAM 空间
 
+# littlefs 内部逻辑
+
+## 基本结构
+
+![alt text](littlefs.assets/image.png)
+
+1. littlefs 文件系统初始化时，会在 SPI Flash 最开始的两个块中格式化出两个超级块，用于对文件系统的识别及根目录的索引；
+2. 在建立文件或目录时，littlefs 会从超级块中分配一个页用于记录文件的基本信息，并建立文件数据的索引以找到文件的具体数据内容；
+3. **当文件大小小于一个块大小时，尽管文件系统不对超出的部分索引，但其他文件仍然不能使用这个块的剩余部分，所以一个文件至少占用一个块大小**；
+4. 如果写入到文件中的数据超过一个块大小时，文件系统会在各个块中建立联系，确保数据的联系性，但各个块在物理地址上不一定连续；
+5. 当在一个文件中追加数据时，文件系统会复制源文件中最后不足一个块的数据到一个新的块，然后在新的块中追加要写入的数据，也就是 littlefs 的“磨损均衡”；
+6. 接上边第五条，在数据写入时，littlefs 每次都会新开辟一个数据块，然后在新的数据块中添加要写入的数据，即便是对原文件覆盖写入也同样开辟一个新的块，待整个块写满或数据写完时才更新文件索引，让新的数据块在文件链路中生效， 由于数据写入的较慢，而索引更新只需一次写入即可，所以 littlefs 能实现“断电恢复”。
+
+## 文件存储方式
+
+对小于一个 Block 八分之一长度的文件，采用 Inline 类型的方式存储，而大于或者等于 Block 八分之一长度的文件则采用 Outline 的方式存储:
+
+- **inline 存储方式**: 文件内容与文件名称一同存储在其父目录的元数据对(metadata pair)内，一个 Tag 表示其名称，一个 Tag 表示其内容
+  ![alt text](littlefs.assets/image-1.png)
+- **outline 存储方式**: 文件其父目录的元数据对（metadata pair）内，一个 Tag 表示文件名称，另一个 Tag 为 CTZ 类型，其指向存储文件内容的链表头
+  ![alt text](littlefs.assets/image-2.png)
+
+## 目录遍历流程
+
+![alt text](littlefs.assets/image-5.png)
+
+## 文件读流程
+
+![alt text](littlefs.assets/image-3.png)
+
+## 文件写流程
+
+![alt text](littlefs.assets/image-4.png)
+
 # 移植
 
 移植的重点是:
@@ -40,9 +74,9 @@ struct lfs_config {
     // 同步接口, 由设备驱动提供, 有的块设备需要有缓存, 需要同步才能将缓存的内容写入
     int (*sync)(const struct lfs_config *c);
 
-    // 最小读取字节数，所有的读取操作字节数必须是它的倍数（影响内存消耗）
+    // 最小读取字节数，起始地址需要按照这个size对齐, 所有的读取操作字节数必须是它的倍数（影响内存消耗）
     lfs_size_t read_size;
-    // 最小写入字节数，所有的写取操作字节数必须是它的倍数（影响内存消耗）
+    // 最小写入字节数，起始地址需要按照这个size对齐, 所有的写取操作字节数必须是它的倍数（影响内存消耗）
     lfs_size_t prog_size;
     //擦除块字节数 不会影响内存消耗；这个数值可以比物理擦除地址大，但是这个数值应该尽可能小，因为每个文件至少占用一个块；值必须是读取和编程粒度的整数倍；
     lfs_size_t block_size;
@@ -193,3 +227,59 @@ if (lfs->free.ack == 0) {
 
 1. 整个磁盘擦除后会出现一次,因为需要重新 mkfs,创建全新的根目录
 1. 之后出现意味着磁盘数据被改写,导致文件系统元数据出现错误
+
+## 读取速度慢
+
+测试发现, 对于 block size 比较大的 flash, 生成的 littlefs.bin 会比较大(即使实际保存的文件并不大), 会影响读取时的速度.
+如下测试的结果:
+
+```log
+# 32M
+cpu1:0s:18274):prvHeapInit-psram start addr:0x60002000, size:7531846
+cpu1:(8762):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_wifi_full.png,time cost:1366
+cpu1:(10152):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_open.png,time cost:1388
+cpu1:(11582):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_light.png,time cost:1430
+cpu1:(13024):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_collect.png,time cost:1442
+cpu1:(14494):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon setting.png,time cost:1470
+cpu1:(15866):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_lock.png，time cost:1370
+cpu1:(17274):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_power.png,time cost:1408
+cpu1:spi:W(18164):rx overflow int triggered
+cpu1:(18984):renxiuhu in _lv_img_cache_open:132 src:/spi/png/home/food1.pngtime cost:1694
+cpu1:(20660):renxiuhu in _lv_img_cache_open:132 src:/spi/png/home/food2.png,time cost:1674
+cpu1:(22338):renxiuhu in _lv_img_cache_open:132 src:/spi/png/home/food3.png,time cost:1676
+cpu1:(24006):renxiuhu in _lv_img_cache_open:132 src:/spi/png/home/food4.png,time cost:1666
+cpu1:lcd_pip:I(24052):display start, frame width, height 480,854
+
+# 4M
+cpu1:os:I(1870): prvHeapInit-psram start addr:0x60002000, size:7331840
+cpu1:(1974):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_wifi_full.png,time cost: 206
+cpu1:(2132):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_open.png,time cost: 156
+cpu1:(2314):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_light.png,time cost:182
+cpu1:(2490):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_collect.png,time cost: 176
+cpu1:(2644):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_setting.png,time cost: 154
+cpu1:(2820):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_lock.png,time cost: 174
+cpu1:(2996):renxiuhu in _lv_img_cache_open:132 src:/spi/png/icon_power.png,time cost: 176
+cpu1:(3304):renxiuhu in _lv_img_cache_open:132 src:/spi/png/food1.png,time cost: 292
+cpu1:(3620):renxiuhu in _lv_img_cache_open:132 src:/spi/png/food2.png,time cost: 316
+cpu1:(3958):renxiuhu in _lv_img_cache_open:132 src:/spi/png/food3.png,time cost: 336
+cpu1:(4302):renxiuhu in _lv_img_cache_open:132 src:/spi/png/food4.png,time cost: 342
+cpu1:lcd_pip:I(4356): display start, frame width, height 480， 854
+```
+
+通过加 log 计算时间发现，bin 文件过大时主要时间浪费在打开文件阶段, 主要集中在`lfs_dir_find`函数：
+
+```log
+cpu1:(33530):renxiuhu in lfs_file_open:5479, tick:33530
+cpu1:(34100):renxiuhu in lfs_file_open:5488, tick:34100
+
+cpu1:(34100):renxiuhu in lfs_file_seek:5589, tick:34100
+cpu1:(34100):renxiuhu in lfs_file_seek:5598, tick:34100
+
+cpu1:(34100):renxiuhu in lfs_file_flushedread:3255, tick:34100, size=8
+cpu1:(34108):renxiuhu in lfs_file_flushedread:3303, tick:34108
+
+cpu1:(34108):renxiuhu in lfs_file_close:5518, tick:34108
+cpu1:(34108):renxiuhu in lfs_file_close:5526, tick:34108
+
+cpu1:(34108):renxiuhu in lv_img_decoder_get_info:105, src:/spi/png/home/food1.png, time cost:578
+```
