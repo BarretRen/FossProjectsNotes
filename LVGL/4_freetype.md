@@ -1,12 +1,57 @@
-FreeType 是一个免费、开源、可移植且高质量的字体引擎，它有以下优点：
+FreeType 是一个免费、开源、可移植且高质量的字体引擎，它有以下优点:
 
 1. 支持多种字体格式文件，并提供了统一的访问接口；
 1. 支持单色位图、反走样位图渲染，这使字体显示质量达到 Mac 的水平；
 1. 采用面向对象思想设计，用户可以灵活的根据需要裁剪。
 
-LVGL 提供了 freetype 相关的接口函数, 需要在`lv_conf.h`中打开`LV_USE_FREETYPE`是能这些接口, **并保证在编译时同 freetype 库一同编译链接**.
+只需要移植这个字体引擎，调用对应的 API 接口， 提供字体文件，就可以让 freetype 库帮我们取出关键点、实现闭合曲线, 填充颜色，达到显示矢量字体的目的.
+
+LVGL 提供了 freetype 相关的接口函数, 需要在`lv_conf.h`中打开`LV_USE_FREETYPE`使能这些接口, **并保证在编译时同 freetype 库一同编译链接**.
+
+# freetype 基础
+
+## 文字显示过程
+
+一个文字的显示过程可以概括如下:
+
+1. 给定一个字符可以确定它的编码值(ASCII、UNICODE、GB2312)；
+1. 设置字体大小；
+1. 根据编码值，从文件头部中通过 charmap 找到对应的关键点(glyph)，它会根据字体大小调整关键点；
+1. 把关键点转换为位图点阵；
+1. 在 LCD 上显示出来
+
+## 如何使用 freetype 库
+
+1. 初始化: `FT_Init_Freetype`
+1. 加载(打开)字体 Face: `FT_New_Face`
+1. 设置字体大小: `FT_Set_Char_Sizes` 或 `FT_Set_Pixel_Sizes`
+1. 根据编码类型选择 charmap: `FT_Select_Charmap`
+1. 根据编码值找到字形图像
+   1. 根据 charcode 找到 glyph_index: `glyph_index = FT_Get_Char_Index(face，charcode)`
+   1. 根据 glyph_index 取出 glyph: `FT_Load_Glyph(face，glyph_index)`
+1. 字形图像转为位图: `FT_Render_Glyph`
+   1. 也可以使用`FT_Load_Char`代替上面的三步
+1. 移动或旋转: `FT_Set_Transform`
+1. 显示出来
+
+## 重要的数据结构
+
+- `FT_Library`: 对应 freetype 库
+- `FT_Face`: 对应一个矢量字体文件
+- `FT_GlyphSlot`: 用来保存字符的处理结果：比如转换后的 glyph、位图. 保存在`face->glyph`, 每次只能存储一个字形图像
+  ![alt text](4_freetype.assets/image.png)
+  - 生成第 1 个字符位图时，它保存在 face->glyph 中
+  - 生成第 2 个字符位图时，也会保存在 face->glyph 中，会覆盖第 1 个字符的位图
+- `FT_Glyph`: 字体文件中保存有字符的原始关键点信息，使用 freetype 的函数可以放大、 缩小、旋转，这些新的关键点保存在插槽中
+- `FT_BBox`: 表示一个字符的外框，即新 glyph 的外框
 
 # LVGL 中使用 freetype 示例
+
+## 相关宏定义
+
+- `LV_FREETYPE_CACHE_SIZE`: 用于缓存字体位图、轮廓图、字符映射表等的最大内存（字节）。注意：此值不包括 FT_Face 和 FT_Size 对象使用的内存。
+- `LV_FREETYPE_CACHE_FT_FACES`: 最大打开 FT_Face 对象数
+- `LV_FREETYPE_CACHE_FT_SIZES`: 最大打开 FT_Size 对象数
 
 ## 初始化
 
@@ -62,4 +107,67 @@ pyftsubset Input.ttf --text-file=text.txt  --output-file=Output.ttf
 
 # 保留指定unicodes范围的字体
 pyftsubset Input.ttf --output-file=Output.ttf --unicodes=U+0000-007F
+```
+
+# 常见问题
+
+## 内存占用问题
+
+在解析过程中，FreeType 会动态分配内存来存储字符图像，并在光栅化时将其转换为像素图像。这可能会导致内存占用问题，如内存泄漏或内存溢出。为了优化这一点，可以采用内存池技术，将字符图像分配到一个固定大小的内存池中，并在需要时从内存池中获取图像数据。
+简单的测试结果:
+
+```
+==================显示12:30, 无cache====================
+name    total   free    minimum   peak
+heap    245016  100736  86400   158616
+psram   7331840 5478904 5193696 2138144
+
+==================显示12:30====================
+加载 初始化 使用
+name    total   free    minimum   peak
+heap    245008  97056   82688   162320
+psram   7331840 5478904 5193696 2138144
+
+加载 初始化
+name    total   free    minimum   peak
+heap    245008  111208  96840   148168
+psram   7331840 5478904 5193696 2138144
+
+加载
+name    total   free    minimum   peak
+heap    245040  116328  101992  143048
+psram   7331840 5478904 5193696 2138144
+
+只设置LV_USE_FREETYPE, 不加载ttf
+name    total   free    minimum   peak
+heap    245048  116456  102120  142928
+psram   7331840 6199800 5914592 1417248
+
+
+==================显示helloword====================
+加载 初始化 使用
+name    total   free    minimum   peak
+heap    245008  97264   82896   162112
+psram   7331840 5478904 5193696 2138144
+
+加载 初始化
+name    total   free    minimum   peak
+heap    245008  111264  96896   148112
+psram   7331840 5478904 5193696 2138144
+
+加载
+name    total   free    minimum   peak
+heap    245040  116368  101984  143056
+psram   7331840 5478904 5193696 2138144
+
+只设置LV_USE_FREETYPE, 不加载ttf
+name    total   free    minimum   peak
+heap    245048  116496  102112  142936
+psram   7331840 6199800 5914592 1417248
+
+==================显示hellowordrenxiuhu====================
+加载 初始化 使用
+name    total   free    minimum   peak
+heap    245008  97096   82728   162280
+psram   7331840 5478904 5193696 2138144
 ```
