@@ -1,0 +1,97 @@
+diff --git i/components/lvgl/src/extra/libs/gif/gifdec.c w/components/lvgl/src/extra/libs/gif/gifdec.c
+index 6543f01..8fe2a92 100755
+--- i/components/lvgl/src/extra/libs/gif/gifdec.c
++++ w/components/lvgl/src/extra/libs/gif/gifdec.c
+@@ -626,6 +626,7 @@ gd_get_frame(gd_GIF *gif)
+ 
+     dispose(gif);
+     f_gif_read(gif, &sep, 1);
++    //os_printf("gd_get_frame sep:%c\n", sep);
+     while (sep != ',') {
+         if (sep == ';') {
+             f_gif_seek(gif, gif->anim_start, LV_FS_SEEK_SET);
+@@ -699,7 +700,32 @@ static bool f_gif_open(gd_GIF * gif, const void * path, bool is_file)
+ static void f_gif_read(gd_GIF * gif, void * buf, size_t len)
+ {
+     if(gif->is_file) {
+-        lv_fs_read(&gif->fd, buf, len, NULL);
++        if (!gif->buf) {
++            gif->buf = lv_psram_mem_alloc(4096);
++            gif->buf_len = 0;
++            gif->buf_pos = 0;
++        }
++
++        uint32_t x;
++        lv_fs_tell(&gif->fd, &x);
++        //os_printf("f_gif_read len:%d, tell:%d\n", len, x);
++        uint8_t *dst = buf;
++        while(len > 0) {
++            if(gif->buf_pos >= gif->buf_len) {
++                uint32_t br;
++                lv_fs_read(&gif->fd, gif->buf, 4096, &br);
++                if(br == 0) break;
++                os_printf("f_gif_read br:%d\n", br);
++                gif->buf_len = br;
++                gif->buf_pos = 0;
++            }
++            
++            size_t copy = LV_MIN(len, gif->buf_len - gif->buf_pos);
++            memcpy(dst, &gif->buf[gif->buf_pos], copy);
++            gif->buf_pos += copy;
++            dst += copy;
++            len -= copy;
++        }
+     } else
+     {
+         memcpy(buf, &gif->data[gif->f_rw_p], len);
+@@ -710,9 +736,23 @@ static void f_gif_read(gd_GIF * gif, void * buf, size_t len)
+ static int f_gif_seek(gd_GIF * gif, size_t pos, int k)
+ {
+     if(gif->is_file) {
+-        lv_fs_seek(&gif->fd, pos, k);
+         uint32_t x;
+         lv_fs_tell(&gif->fd, &x);
++        if (k== LV_FS_SEEK_CUR && (gif->buf_pos + pos) <= gif->buf_len)
++        {
++            gif->buf_pos += pos;
++            return (x - (gif->buf_len - gif->buf_pos));
++        }
++        else
++        {
++            lv_fs_seek(&gif->fd, (x - (gif->buf_len - gif->buf_pos)), LV_FS_SEEK_SET);
++            gif->buf_len = 0;
++            gif->buf_pos = 0;
++        }
++        lv_fs_seek(&gif->fd, pos, k);
++        // uint32_t x;
++        lv_fs_tell(&gif->fd, &x);
++        //os_printf("f_gif_seek pos:%d, tell:%d\n", pos, x);
+         return x;
+     } else {
+         if(k == LV_FS_SEEK_CUR) gif->f_rw_p += pos;
+@@ -724,6 +764,10 @@ static int f_gif_seek(gd_GIF * gif, size_t pos, int k)
+ static void f_gif_close(gd_GIF * gif)
+ {
+     if(gif->is_file) {
++        if(gif->buf) {
++            lv_mem_free(gif->buf);
++            gif->buf = NULL;
++        }
+         lv_fs_close(&gif->fd);
+     }
+ }
+diff --git i/components/lvgl/src/extra/libs/gif/gifdec.h w/components/lvgl/src/extra/libs/gif/gifdec.h
+index b68fab5..e468652 100755
+--- i/components/lvgl/src/extra/libs/gif/gifdec.h
++++ w/components/lvgl/src/extra/libs/gif/gifdec.h
+@@ -43,6 +43,10 @@ typedef struct gd_GIF {
+     uint16_t fx, fy, fw, fh;
+     uint8_t bgindex;
+     uint8_t *canvas, *frame;
++
++    uint8_t * buf;
++    size_t buf_len;
++    size_t buf_pos;
+ } gd_GIF;
+ 
+ gd_GIF * gd_open_gif_file(const char *fname);

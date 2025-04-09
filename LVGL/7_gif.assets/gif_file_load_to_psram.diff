@@ -1,0 +1,74 @@
+diff --git c/components/lvgl/src/extra/libs/gif/gifdec.c w/components/lvgl/src/extra/libs/gif/gifdec.c
+index dc64c17..b44bd06 100755
+--- c/components/lvgl/src/extra/libs/gif/gifdec.c
++++ w/components/lvgl/src/extra/libs/gif/gifdec.c
+@@ -44,6 +44,37 @@ read_num(gd_GIF * gif)
+ gd_GIF *
+ gd_open_gif_file(const char *fname)
+ {
++#if LV_GIF_FILE_DATA_BUFFER
++    lv_fs_file_t file;
++    uint32_t file_size;
++    void * buffer = NULL;
++
++    if(lv_fs_open(&file, fname, LV_FS_MODE_RD) != LV_FS_RES_OK)
++        return NULL;
++    lv_fs_seek(&file, 0, LV_FS_SEEK_END);
++    lv_fs_tell(&file, &file_size);
++    lv_fs_seek(&file, 0, LV_FS_SEEK_SET);
++
++#if LV_GIF_USE_PSRAM
++    buffer = lv_psram_mem_alloc(file_size);
++#else 
++    buffer = lv_mem_alloc(file_size);
++#endif
++    if(!buffer) {
++        lv_fs_close(&file);
++        return NULL;
++    }
++
++    uint32_t br;
++    lv_fs_read(&file, buffer, file_size, &br);
++    lv_fs_close(&file);
++
++    if(br != file_size) {
++        lv_mem_free(buffer);
++        return NULL;
++    }
++    return gd_open_gif_data(buffer);
++#else
+     gd_GIF gif_base;
+     memset(&gif_base, 0, sizeof(gif_base));
+ 
+@@ -51,6 +82,7 @@ gd_open_gif_file(const char *fname)
+     if(!res) return NULL;
+ 
+     return gif_open(&gif_base);
++#endif
+ }
+ 
+ 
+@@ -639,6 +671,11 @@ gd_rewind(gd_GIF *gif)
+ void
+ gd_close_gif(gd_GIF *gif)
+ {
++#if LV_GIF_FILE_DATA_BUFFER
++    if(!gif->is_file) {
++        lv_mem_free((void*)gif->data);
++    }
++#endif
+     f_gif_close(gif);
+     lv_mem_free(gif);
+ }
+diff --git c/components/lvgl/src/extra/libs/gif/gifdec.h w/components/lvgl/src/extra/libs/gif/gifdec.h
+index b68fab5..d5e2271 100755
+--- c/components/lvgl/src/extra/libs/gif/gifdec.h
++++ w/components/lvgl/src/extra/libs/gif/gifdec.h
+@@ -5,6 +5,7 @@
+ #include "../../../misc/lv_fs.h"
+ 
+ #if LV_USE_GIF
++#define LV_GIF_FILE_DATA_BUFFER 1
+ 
+ typedef struct gd_Palette {
+     int size;
