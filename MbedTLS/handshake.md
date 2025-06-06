@@ -32,6 +32,29 @@
 DTLS 是基于 UDP 场景下数据包可能丢失或重新排序的情况下，为 UDP 定制和改进的 TLS 协议。
 ![Alt text](handshake.assets/image-1.png)
 
+## extension 扩展
+
+### 扩展作用
+
+Client 在 ClientHello 中申明多个自己可以支持的 Extension，以向 Server 表示自己有以下这些能力，或者向 Server 协商某些协议。
+Server 收到 ClientHello 以后，依次解析 Extension，有些如果需要立即回应，就在 ServerHello 中作出回应，有些不需要回应，或者 Server 不支持的 Extension 就不用响应，忽略不处理。
+
+在 TLS 握手时会有如下行为：
+
+- Extension 不影响 TLS 握手的成功与否。Server 对 ClientHello 中的 Extension 有些不支持，忽略不处理即可，不影响握手的流程
+- ServerHello 中回应 Client 的 Extension 一定要是 ClientHello 中的 Extension 的子集(小于等于)。ServerHello 中禁止出现 ClientHello 中没有出现的 Extension。如果一个 Client 在 ServerHello 中收到一个扩展类型但在相关的 ClientHello 中并没有请求，它必须用一个 unsupported_extension 致命 alert 消息来丢弃握手。
+- 当 ClientHello 或 ServerHello 中有多个不同类型的扩展存在时，这些扩展可能会以任意顺序出现。一个类型不能拥有超过一个扩展
+
+### TLS 1.2 的扩展
+
+TLS 1.2 的扩展定义在**RFC6066**中，主要有：
+![alt text](handshake.assets/image-9.png)
+
+### TLS 1.3 的扩展
+
+TLS 1.3 的扩展定义在**RFC8446**中，主要有：
+![alt text](handshake.assets/image-10.png)
+
 # session 恢复
 
 有两种方法可以恢复原来的 session，不需要重新握:
