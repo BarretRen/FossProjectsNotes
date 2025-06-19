@@ -1,0 +1,88 @@
+diff --git a/components/lvgl/src/misc/lv_anim.c b/components/lvgl/src/misc/lv_anim.c
+index 4e4253a6ec1aa06a7f2912425a2bcec74e270913..b3e15ef355dff3b70d1c150e419cfc4342a97e90 100755
+--- a/components/lvgl/src/misc/lv_anim.c
++++ b/components/lvgl/src/misc/lv_anim.c
+@@ -7,7 +7,7 @@
+  *      INCLUDES
+  *********************/
+ #include "lv_anim.h"
+-
++#include <stdlib.h>
+ #include "../hal/lv_hal_tick.h"
+ #include "lv_assert.h"
+ #include "lv_timer.h"
+@@ -218,8 +218,16 @@ int32_t lv_anim_path_linear(const lv_anim_t * a)
+      *and the `start` and `end` values*/
+     int32_t new_value;
+     new_value = step * (a->end_value - a->start_value);
+-    new_value = new_value >> LV_ANIM_RES_SHIFT;
++    if(abs(a->start_value - a->end_value) > 0x1fff)  //triple long context
++        new_value = new_value >> (LV_ANIM_RES_SHIFT + 3);
++    else if(abs(a->start_value - a->end_value) > 0xfff)  //double long context
++        new_value = new_value >> (LV_ANIM_RES_SHIFT + 2);
++    else if(abs(a->start_value - a->end_value) > 0x7ff)  //long context
++        new_value = new_value >> (LV_ANIM_RES_SHIFT + 1);
++    else
++        new_value = new_value >> LV_ANIM_RES_SHIFT;  //short context
+     new_value += a->start_value;
++    //os_printf("new_value:%d step:%d start:%d end:%d\r\n",new_value,step,a->start_value,a->end_value);
+ 
+     return new_value;
+ }
+diff --git a/components/lvgl/src/widgets/lv_label.c b/components/lvgl/src/widgets/lv_label.c
+index f4fbe01a5a5857836dae8b789120af83b272086c..385178c09651fb13699ef862aeea01dd261856e6 100755
+--- a/components/lvgl/src/widgets/lv_label.c
++++ b/components/lvgl/src/widgets/lv_label.c
+@@ -7,6 +7,7 @@
+  *      INCLUDES
+  *********************/
+ #include "lv_label.h"
++#include <stdlib.h>
+ #if LV_USE_LABEL != 0
+ #include "../core/lv_obj.h"
+ #include "../misc/lv_assert.h"
+@@ -28,6 +29,8 @@
+ #define LV_LABEL_DOT_END_INV 0xFFFFFFFF
+ #define LV_LABEL_HINT_HEIGHT_LIMIT 1024 /*Enable "hint" to buffer info about labels larger than this. (Speed up drawing)*/
+ 
++#define LV_LABEL_ANMI_SPEED         8
++
+ /**********************
+  *      TYPEDEFS
+  **********************/
+@@ -974,6 +977,8 @@ static void lv_label_refr_text(lv_obj_t * obj)
+                 }
+             }
+ 
++            if(abs(a.start_value - a.end_value) > 0x7ff)
++                anim_speed = anim_speed * LV_LABEL_ANMI_SPEED;
+             lv_anim_set_time(&a, lv_anim_speed_to_time(anim_speed, a.start_value, a.end_value));
+             lv_anim_set_playback_time(&a, a.time);
+             lv_anim_start(&a);
+@@ -1009,6 +1014,8 @@ static void lv_label_refr_text(lv_obj_t * obj)
+                 }
+             }
+ 
++            if(abs(a.start_value - a.end_value) > 0x7ff)
++                anim_speed = anim_speed * LV_LABEL_ANMI_SPEED;
+             lv_anim_set_time(&a, lv_anim_speed_to_time(anim_speed, a.start_value, a.end_value));
+             lv_anim_set_playback_time(&a, a.time);
+             lv_anim_start(&a);
+@@ -1052,6 +1059,8 @@ static void lv_label_refr_text(lv_obj_t * obj)
+             lv_anim_set_values(&a, 0, -size.x - lv_font_get_glyph_width(font, ' ', ' ') * LV_LABEL_WAIT_CHAR_COUNT);
+ #endif
+             lv_anim_set_exec_cb(&a, set_ofs_x_anim);
++            if(abs(a.start_value - a.end_value) > 0x7ff)
++                anim_speed = anim_speed * LV_LABEL_ANMI_SPEED;
+             lv_anim_set_time(&a, lv_anim_speed_to_time(anim_speed, a.start_value, a.end_value));
+ 
+             lv_anim_t * anim_cur = lv_anim_get(obj, set_ofs_x_anim);
+@@ -1079,6 +1088,8 @@ static void lv_label_refr_text(lv_obj_t * obj)
+         if(size.y > lv_area_get_height(&txt_coords) && hor_anim == false) {
+             lv_anim_set_values(&a, 0, -size.y - (lv_font_get_line_height(font)));
+             lv_anim_set_exec_cb(&a, set_ofs_y_anim);
++            if(abs(a.start_value - a.end_value) > 0x7ff)
++                anim_speed = anim_speed * LV_LABEL_ANMI_SPEED;
+             lv_anim_set_time(&a, lv_anim_speed_to_time(anim_speed, a.start_value, a.end_value));
+ 
+             lv_anim_t * anim_cur = lv_anim_get(obj, set_ofs_y_anim);

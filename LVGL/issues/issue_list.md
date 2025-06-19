@@ -61,3 +61,8 @@ img cache 涉及到的内存占用:
 - [双 buf 只复制更新区域](0001-双buf局部区域更新.patch)
 - [竖屏横用旋转优化](0002-竖屏横用旋转优化算法.patch)
 - [lvgl 代码段单独存放](0003-lvgl_draw-section-and-lv_code_load_psram.patch)
+
+## label 显示超长文本滚动时卡顿
+
+1. `lv_obj_set_style_anim_speed`加快速度
+1. [修改动画的步长和动画速度](./label_long_text_scroll.diff)
