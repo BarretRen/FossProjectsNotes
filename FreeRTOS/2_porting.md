@@ -53,6 +53,15 @@
 #define configUSE_PREEMPTION                      1
 ```
 
+注意：`configTICK_RATE_HZ`决定的是 FreeRTOS 的最小时间精度，FreeRTOS 本身不依赖 CPU 频率，而是**依赖 SysTick 定时器**。FreeRTOS 的 tick 主要用于任务调度和软件定时器，更高的 tick 频率会导致 systick 中断更频繁，增加 CPU 中断开销。推荐配置如下：
+
+| 推荐 configTICK_RATE_HZ | 最小精度   | 适用情况                           |
+| :---------------------- | :--------- | :--------------------------------- |
+| 5000~10000 Hz           | 0.2~0.1 ms | 高实时性控制（如电机、PWM）        |
+| 1000 Hz                 | 1 ms       | 大多数应用（平衡性能和精度）       |
+| 500Hz                   | 2ms        | 低功耗或时间精度要求较低的人物     |
+| 100 Hz                  | 10 ms      | 超低功耗设备（如电池供电传感器）） |
+
 # portmacro.h
 
 `portmacro.h`中定义了 freeRTOS 内部使用的数据类型重定义, 和硬件操作相关的宏和函数, 同时也声明`port.c`中实现的硬件操作的函数.

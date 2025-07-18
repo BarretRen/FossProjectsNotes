@@ -126,7 +126,7 @@ openssl rsa -pubin -in pubkey.txt -text -noout
 openssl x509 -text -noout -in server.crt
 ```
 
-### whareshark 包中获取
+### wireshark 包中获取
 
 ![alt text](handshake.assets/image-4.png)
 
