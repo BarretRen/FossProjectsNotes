@@ -72,3 +72,20 @@ void tcp_receive(struct tcp_pcb *pcb)
   /* ... */
 }
 ```
+
+## connection closed by peer
+
+当 LwIP 报告 connection closed by peer 时，它告诉你：对端发送了一个带有 FIN 标志的 TCP 包，主动发起了 TCP 连接的终止流程（四次挥手），而 LwIP 作为接收方，已经完整地处理了这个关闭流程
+
+一个正常的 TCP 连接关闭是“四次挥手”：
+
+1. 主动关闭方（在这里就是“对端/peer”）发送一个 FIN 包。
+1. 被动关闭方（在这里是你的 LwIP 设备）收到 FIN 后，回应一个 ACK 包，并通知你的应用程序（例如，recv 返回 0，或者 err 回调函数被调用并提示连接关闭）。
+1. 你的 LwIP 设备（被动关闭方）继续发送完所有未发送的数据后（如果需要），也发送一个 FIN 包。
+1. 对端收到你的 FIN 包后，回应一个 ACK 包。连接完全关闭。
+
+## socket errno 104
+
+Socket error 104 对应的是 ECONNRESET。它的字面意思是“连接被对端重置”。通俗来讲，就是你的设备和服务器已经成功建立了 TCP 连接，但在通信过程中，服务器端（或中间的某个网络设备）主动发送了一个带有 RST 标志的 TCP 包，强行中断了这条连接.
+
+lwip 内部 err ERR_RST 经过函数`err_to_errno`被映射为 104, 然后通过`sock_set_errno`设置 errno 变量.
