@@ -31,3 +31,9 @@ mbedtls_ctr_drbg_init:
     ctx->reseed_counter = -1;
     ctx->reseed_interval = MBEDTLS_CTR_DRBG_RESEED_INTERVAL; //10000
 ```
+
+## mbedtls 内部如何申请内存
+
+通过`MBEDTLS_PLATFORM_CALLOC_MACRO`和`MBEDTLS_PLATFORM_FREE_MACRO`指定全局的内存申请释放函数。
+
+没有声明上面两个宏的时候，在`platform.c`才指定`mbedtls_calloc_func`和`mbedtls_free_func`用于内存操作。

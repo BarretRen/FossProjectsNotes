@@ -89,3 +89,36 @@ void tcp_receive(struct tcp_pcb *pcb)
 Socket error 104 对应的是 ECONNRESET。它的字面意思是“连接被对端重置”。通俗来讲，就是你的设备和服务器已经成功建立了 TCP 连接，但在通信过程中，服务器端（或中间的某个网络设备）主动发送了一个带有 RST 标志的 TCP 包，强行中断了这条连接.
 
 lwip 内部 err ERR_RST 经过函数`err_to_errno`被映射为 104, 然后通过`sock_set_errno`设置 errno 变量.
+
+## select 机制
+
+LWIP 为了高效地模拟 select() 的多路复用功能，采用了一种计数器机制（select_waiting 或 rcvevent）来跟踪每个 socket 上的事件状态。
+
+- NETCONN_EVT_RCVPLUS (加事件)：
+  - 何时触发：当底层协议栈（如 TCP）接收到新的数据并放入 socket 的接收缓冲区时。
+  - 作用：内部计数器 加 1。这表示“有新的数据可读事件发生了”。
+  - 对 select() 的影响：如果计数器从 0 变为 1，意味着 socket 从“不可读”变成了“可读”。这时，如果 select() 正在等待这个 socket，就需要被唤醒。
+- NETCONN_EVT_RCVMINUS (减事件)：
+  - 何时触发：当应用程序通过 recv(), read(), netconn_recv() 等函数从 socket 的接收缓冲区中成功读取走数据后。
+  - 作用：内部计数器 减 1。这表示“一个可读事件已经被消费掉了”。
+  - 对 select() 的影响：递减计数器。如果计数器减到 0，意味着所有已通知的“可读事件”都已经被应用程序处理完毕，接收缓冲区可能已经空了。此时，socket 应- 该从“可读”状态变回“不可读”状态，这样下一次调用 select() 时，如果没有新数据到来，就不会立即返回
+
+工作流程示例：
+假设一个 TCP socket 的接收缓冲区初始为空，内部计数器为 0。
+
+1. 数据包 1 到达：
+   - LWIP 调用 `lwip_select_fd_callback(fd, NETCONN_EVT_RCVPLUS, 1);`
+   - **计数器从 0 -> 1**。由于状态从无到有，`select()` 线程被唤醒。
+   - 应用程序的 `select()` 返回，指示 socket 可读。
+1. 应用程序调用 `recv()` 读取数据包 1：
+   - 读取成功后，LWIP 会调用 `lwip_select_fd_callback(fd, NETCONN_EVT_RCVMINUS, 1);`
+   - **计数器从 1 -> 0**。
+   - 此时，如果接收缓冲区真的空了，socket 就不再处于可读状态。
+1. 数据包 2 和 3 紧接着到达：
+   - LWIP 可能会调用两次 `lwip_select_fd_callback(fd, NETCONN_EVT_RCVPLUS, 1);`
+   - **计数器从 0 -> 1** (第一次加，唤醒 `select`)，然后 **1 -> 2** (第二次加，但计数器已大于 0，可能不会再次唤醒)。
+1. 应用程序再次调用 `recv()`：
+   - 这次调用可能只读取了数据包 2。
+   - LWIP 会调用 `lwip_select_fd_callback(fd, NETCONN_EVT_RCVMINUS, 1);`
+   - **计数器从 2 -> 1**。
+   - 因为计数器是 1（大于 0），socket **仍然处于可读状态**（因为数据包 3 还在缓冲区里），所以下一次 `select()` 会立即返回。
