@@ -169,3 +169,16 @@ set_client_config:
 在 TLS 中，错误码-0x7180 表示验证消息 MAC 失败。在 TLS 中使用 MAC (Message Authentication Code) 来验证传输的数据完整性和真实性。客户端和服务器共享一个密钥，通过计算 MAC 验证数据的真实性。
 
 当返回错误-0x7180 时，表示 TLS 无法验证消息 MAC，也就是说，TLS 认为消息的密钥不匹配、消息被篡改、消息在传输过程中被重放等原因导致**计算得到的 MAC 和接收到的 MAC 不匹配**。这种情况可能是由于网络问题、安全配置问题或应用程序代码问题等原因引起的。
+
+## 握手阶段不支持tls分片？
+
+在握手阶段处理tls record时，有以下逻辑
+
+```c
+mbedtls_ssl_prepare_handshake_record:
+    if( ssl->in_msglen < ssl->in_hslen )
+        MBEDTLS_SSL_DEBUG_MSG( 1, ( "TLS handshake fragmentation not supported" ) );
+        return( MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE );//返回0x7080错误
+```
+
+mbedtls判断此次收到的长度和tls包中标记的总长度不符会保错, 说明分片了, 不支持分片。
