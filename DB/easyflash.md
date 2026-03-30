@@ -95,3 +95,37 @@ check_and_recovery_gc_cb:
             if (empty_sec <= EF_GC_EMPTY_SEC_THRESHOLD)
                 sector_iterator(&sector, SECTOR_STORE_UNUSED, NULL, NULL, do_gc, false);
 ```
+
+# flash内容解析脚本
+
+[ef_parser](./easyflash.assets/ef_parser.py)
+
+## 二进制中00 ff ff ff是啥东西
+
+```c
+/*
+ * | write garn |       status0       |       status1       |      status2         |
+ * ---------------------------------------------------------------------------------
+ * |    1bit    | 0xFF                | 0x7F                |  0x3F                |
+ * |    8bit    | 0xFFFF              | 0x00FF              |  0x0000              |
+ * |   32bit    | 0xFFFFFFFF FFFFFFFF | 0x00FFFFFF FFFFFFFF |  0x00FFFFFF 00FFFFFF |
+ */
+```
+
+这是 EasyFlash 用于实现「原子写入」和「磨损平衡」的状态机定义：
+
+1. write garn是最小原子写入单位，在`ef_cfg.h`中配置
+1. 三个状态的含义如下
+   ![alt text](easyflash.assets/image-2.png)
+1. 状态转换的完整流程:
+   1. 擦除扇区：初始状态全是 status0（0xFF）
+   1. 标记「正在写」：先写 status1（把第一个 granule 写成 0）
+   1. 写入实际 KV 数据：写键名、值等内容
+   1. 标记「写完成」：最后写 status2（把第二个 granule 写成 0）
+   1. 读取时的逻辑：EasyFlash 只读取 status2 的块，忽略 status0（空闲）和 status1（写中断损坏）的块
+
+**如果填充区的状态位不对（比如错误数据中缺少 00 FF FF FF），EasyFlash 可能会**：
+
+1. 认为这个块是「空闲的」，直接覆盖现有数据
+1. 认为这个块是「写中断损坏的」，忽略有效数据
+1. 初始化时认为分区「未格式化」，触发自动擦除
